@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1300</width>
+    <height>900</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>EasyTracer</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">
+    QMainWindow, QWidget, QComboBox, QLineEdit, QPlainTextEdit {
+      background-color: #F8F1F6;
+    }
+    QLabel {
+      color: #1C1B1F;
+      background-color: transparent;
+    }
+    QComboBox, QLineEdit {
+      padding: 8px;
+      border: 1px solid #79747E;
+      border-radius: 4px;
+      color: #1C1B1F;
+    }
+    QComboBox:focus, QLineEdit:focus {
+      border: 2px solid #6750A4;
+    }
+    QPushButton {
+      padding: 10px 24px;
+      color: #FFFFFF;
+      background-color: #6750A4;
+      border: none;
+      border-radius: 20px;
+      font-weight: bold;
+    }
+    QPushButton:hover {
+      background-color: #7965AF;
+    }
+    QPushButton:pressed {
+      background-color: #553B93;
+    }
+    QPlainTextEdit {
+      border: 1px solid #79747E;
+      border-radius: 4px;
+      color: #1C1B1F;
+      padding: 8px;
+    }
+    QGroupBox {
+      font-weight: bold;
+      margin-top: 1ex;
+      color: #1C1B1F;
+      background-color: transparent;
+    }
+    QGroupBox::title {
+      subcontrol-origin: margin;
+      subcontrol-position: top left;
+      padding: 0 3px;
+      color: #6750A4;
+      background-color: transparent;
+    }
+   </string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <item>
+     <widget class="QGroupBox" name="config_group">
+      <property name="title">
+       <string>Configuration</string>
+      </property>
+      <layout class="QGridLayout" name="gridLayout">
+       <item row="0" column="0">
+        <widget class="QLabel" name="label_5">
+         <property name="text">
+          <string>Device:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QComboBox" name="device_combo"/>
+       </item>
+       <item row="0" column="2">
+        <widget class="QLabel" name="label">
+         <property name="text">
+          <string>Trace Type:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="3">
+        <widget class="QComboBox" name="tracer_type_combo"/>
+       </item>
+       <item row="0" column="4">
+        <widget class="QLabel" name="label_2">
+         <property name="text">
+          <string>Time:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="5">
+        <widget class="QComboBox" name="trace_time_combo">
+         <property name="editable">
+          <bool>true</bool>
+         </property>
+         <property name="maximumWidth">
+          <number>100</number>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="6">
+        <widget class="QComboBox" name="time_unit_combo">
+         <property name="maximumWidth">
+          <number>80</number>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="7">
+        <widget class="QLabel" name="label_3">
+         <property name="text">
+          <string>Buffer:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="8">
+        <widget class="QLineEdit" name="buffer_size_input">
+         <property name="maximumWidth">
+          <number>100</number>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="9">
+        <widget class="QComboBox" name="buffer_unit_combo">
+         <property name="maximumWidth">
+          <number>80</number>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="10">
+        <widget class="QPushButton" name="advanced_settings_button">
+         <property name="text">
+          <string>Advanced Settings</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="label_4">
+         <property name="text">
+          <string>Output Folder:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1" colspan="7">
+        <widget class="QLineEdit" name="output_folder_input"/>
+       </item>
+       <item row="1" column="8" colspan="2">
+        <widget class="QPushButton" name="open_output_button">
+         <property name="text">
+          <string>Open Folder</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <layout class="QHBoxLayout" name="horizontalLayout_6">
+      <item>
+       <layout class="QVBoxLayout" name="verticalLayout_3">
+        <property name="leftMargin">
+         <number>10</number>
+        </property>
+        <item>
+         <widget class="QPlainTextEdit" name="log_output">
+          <property name="readOnly">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="version_label">
+          <property name="text">
+           <string>version: v0.1.0</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignLeft|Qt::AlignVCenter</set>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QVBoxLayout" name="verticalLayout_2">
+        <property name="rightMargin">
+         <number>10</number>
+        </property>
+        <item>
+         <widget class="QPushButton" name="start_button">
+          <property name="text">
+           <string>Start</string>
+          </property>
+          <property name="minimumWidth">
+           <number>120</number>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="stop_button">
+          <property name="text">
+           <string>Stop</string>
+          </property>
+          <property name="minimumWidth">
+           <number>120</number>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="clear_log_button">
+          <property name="text">
+           <string>Clear Log</string>
+          </property>
+          <property name="minimumWidth">
+           <number>120</number>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="verticalSpacer">
+          <property name="orientation">
+           <enum>Qt::Vertical</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>20</width>
+            <height>40</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SystraceAdvancedDialog</class>
+ <widget class="QDialog" name="systrace_advanced_dialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>800</width>
+    <height>600</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Systrace Advanced Settings</string>
+  </property>
+  <layout class="QVBoxLayout" name="vertical_layout">
+   <item>
+    <layout class="QHBoxLayout" name="command_layout">
+     <item>
+      <widget class="QLabel" name="pre_command_label">
+       <property name="text">
+        <string>Pre-trace command:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLineEdit" name="pre_command_input"/>
+     </item>
+     <item>
+      <widget class="QLabel" name="post_command_label">
+       <property name="text">
+        <string>Post-trace command:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLineEdit" name="post_command_input"/>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QSplitter" name="splitter">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+     <widget class="QGroupBox" name="atrace_group">
+      <property name="title">
+       <string>Atrace Categories</string>
+      </property>
+      <layout class="QVBoxLayout" name="atrace_layout">
+       <item>
+        <layout class="QHBoxLayout" name="select_buttons_layout">
+         <item>
+          <widget class="QPushButton" name="select_all_button">
+           <property name="text">
+            <string>Select All</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="deselect_all_button">
+           <property name="text">
+            <string>Deselect All</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QScrollArea" name="categories_scroll_area">
+         <property name="widgetResizable">
+          <bool>true</bool>
+         </property>
+         <widget class="QWidget" name="categories_widget">
+          <layout class="QVBoxLayout" name="categories_layout"/>
+         </widget>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QGroupBox" name="ftrace_group">
+      <property name="title">
+       <string>Ftrace Options</string>
+      </property>
+      <layout class="QGridLayout" name="ftrace_layout"/>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="button_layout">
+     <item>
+      <widget class="QPushButton" name="save_button">
+       <property name="text">
+        <string>Save</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="cancel_button">
+       <property name="text">
+        <string>Cancel</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
