@@ -11,7 +11,7 @@ class SystraceAdapter:
         # Calculate path to run_systrace.py
         current_dir = os.path.dirname(os.path.abspath(__file__))
         self.script_path = os.path.join(
-            current_dir, "external", "systrace", "systrace", "run_systrace.py"
+            current_dir, "external", "systrace", "systrace", "systrace", "run_systrace.py"
         )
 
     def run_systrace(
@@ -30,8 +30,15 @@ class SystraceAdapter:
         if not os.path.exists(self.script_path):
             raise FileNotFoundError(f"Systrace script not found at {self.script_path}")
 
+        # Determine python executable
+        python_exec = sys.executable
+        if getattr(sys, "frozen", False):
+            # In frozen app, sys.executable is the exe itself.
+            # We assume user has python installed and in PATH as per prerequisites.
+            python_exec = "python"
+
         cmd = [
-            sys.executable,  # Use current python interpreter
+            python_exec,
             self.script_path,
             "-o",
             output_file,

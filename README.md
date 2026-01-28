@@ -5,91 +5,55 @@ A GUI wrapper for various Android performance tracing tools, including Systrace,
 ## Features
 
 - **Device Management**: Auto-detect connected Android devices via ADB.
-- **Systrace**: Capture system traces with configurable categories and buffer size.
+- **Systrace**: Capture system traces with configurable categories and buffer size. Auto-loads categories upon device selection.
 - **Perfetto**: Record modern Android traces.
-- **Simpleperf**: Profile application or system CPU usage.
+- **Simpleperf**: Profile application or system CPU usage (FlameGraph generation supported).
 - **Traceview**: Start/Stop method tracing with sampling support.
 - **Combo Capture**: Run multiple tools simultaneously for comprehensive analysis.
 
 ## Prerequisites
 
-- Python 3.9+
-- ADB (Android Debug Bridge) installed and in PATH.
+- **Python 3.9+** must be installed and added to your system PATH (required for running Systrace and Simpleperf scripts).
+- **ADB (Android Debug Bridge)** installed and in PATH.
 - Connected Android device with USB debugging enabled.
 
 ## Setup
 
 1.  **Create Virtual Environment (.venv)**:
     ```bash
-    # Linux/macOS
-    python -m venv .venv
-
     # Windows (PowerShell)
     python -m venv .venv
     ```
 
 2.  **Install Dependencies**:
     ```bash
-    # Linux/macOS
-    ./.venv/bin/python -m pip install -r requirements.txt
-
     # Windows (PowerShell)
-    .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+    .\.venv\Scripts\pip install -r requirements.txt
     ```
-    *Note: If `requirements.txt` is missing, install `PySide6` manually:*
+
+3.  **Run Application**:
     ```bash
-    # Linux/macOS
-    ./.venv/bin/python -m pip install PySide6
-
-    # Windows (PowerShell)
-    .\.venv\Scripts\python.exe -m pip install PySide6
+    .\.venv\Scripts\python src/easy_tracer/main.py
     ```
 
-3.  **Environment**:
-    Ensure `adb` is in your system PATH.
+## Building Executable (Windows)
 
-## Running the Application
+To package the application as a standalone EXE:
 
-Run the main script from the root directory:
+1.  Install PyInstaller:
+    ```bash
+    .\.venv\Scripts\pip install pyinstaller
+    ```
 
-```bash
-# Linux/macOS
-./.venv/bin/python easy_tracer/src/easy_tracer/main.py
+2.  Build:
+    ```bash
+    .\.venv\Scripts\pyinstaller easy_tracer.spec --noconfirm
+    ```
 
-# Windows (PowerShell)
-.\.venv\Scripts\python.exe easy_tracer/src/easy_tracer/main.py
-```
+3.  The executable will be located in `dist/easy_tracer/easy_tracer.exe`.
 
-## Running Tests
+## Troubleshooting
 
-To run the unit tests:
-
-```bash
-# Linux/macOS
-./.venv/bin/python -m unittest discover easy_tracer/tests
-
-# Windows (PowerShell)
-.\.venv\Scripts\python.exe -m unittest discover easy_tracer/tests
-```
-
-## Build EXE (Windows)
-
-From the `easy_tracer` directory:
-
-```bash
-.\.venv\Scripts\python.exe tools\release.py --clean
-```
-
-The executable will be generated at:
-
-```
-easy_tracer/dist/easytracer/easy_tracer.exe
-```
-
-## Project Structure
-
-- `src/easy_tracer/ui`: Qt (PySide6) UI components.
-- `src/easy_tracer/presenters`: Business logic connecting UI and Services.
-- `src/easy_tracer/services`: Coordination of tracing tasks.
-- `src/easy_tracer/framework`: Adapters for external tools (ADB, Systrace, etc.).
-- `src/easy_tracer/framework/external`: Bundled external tools (Systrace, Simpleperf).
+- **ADB locks**: If you cannot delete the `dist` folder, ensure the application is closed. The app attempts to kill the background ADB server on exit, but you may need to run `adb kill-server` manually if issues persist.
+- **Startup speed**: The first launch might be slightly slower as it initializes ADB. Subsequent launches should be faster.
+- **Scripts not found**: Ensure you have a valid Python installation in your system PATH, as the packaged tool relies on the system Python to execute vendor scripts (Systrace/Simpleperf).

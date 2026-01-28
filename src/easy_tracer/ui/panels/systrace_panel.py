@@ -205,6 +205,10 @@ class SystracePanel(QtWidgets.QWidget):
             self.status_label.setText("Please select a device.")
         else:
             self.status_label.setText(f"Selected device: {serial}.")
+            # Auto-load categories and ftrace events when device is selected
+            self._on_load_categories()
+            # self._on_load_ftrace() # Ftrace might be slow, let's optional or auto-load too?
+            # Let's auto-load categories as they are required for basic systrace.
 
     def update_view(self) -> None:
         busy = self.presenter.is_loading_categories or self.presenter.is_loading_ftrace or self.presenter.is_capturing
