@@ -58,40 +58,7 @@ def _get_app_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def run_script_mode() -> bool:
-    """
-    Checks if the application is called in script execution mode.
-    If so, executes the target script and returns True.
-    Usage: easy_tracer.exe --execute-script <script_path> [args...]
-    """
-    if len(sys.argv) > 2 and sys.argv[1] == "--execute-script":
-        import runpy
-
-        script_path = sys.argv[2]
-        # Reconstruct sys.argv to look like: python script.py [args...]
-        # sys.argv[0] becomes the script path
-        sys.argv = [script_path] + sys.argv[3:]
-
-        # Ensure the script's directory is in sys.path
-        sys.path.insert(0, str(Path(script_path).parent))
-
-        try:
-            runpy.run_path(script_path, run_name="__main__")
-            sys.exit(0)
-        except SystemExit as e:
-            sys.exit(e.code)
-        except Exception as e:
-            print(f"Error executing script {script_path}: {e}", file=sys.stderr)
-            sys.exit(1)
-        return True
-    return False
-
-
 def run() -> None:
-    # Check for script execution mode first
-    if run_script_mode():
-        return
-
     app_root = _get_app_root()
     config_service = ConfigService(
         config_path=app_root / "config.json",
