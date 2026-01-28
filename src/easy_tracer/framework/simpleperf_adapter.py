@@ -34,15 +34,13 @@ class SimpleperfAdapter:
 
         perf_data_path = os.path.join(output_dir, "perf.data")
 
-        # Determine python executable
-        python_exec = sys.executable
+        # Construct command prefix
+        # If frozen, use the exe itself with --execute-script
+        cmd_prefix = [sys.executable]
         if getattr(sys, "frozen", False):
-            # In frozen app, sys.executable is the exe itself.
-            # We assume user has python installed and in PATH.
-            python_exec = "python"
+            cmd_prefix.append("--execute-script")
 
-        cmd = [
-            python_exec,
+        cmd = cmd_prefix + [
             self.app_profiler_path,
             "-p",
             app_name,
@@ -86,13 +84,12 @@ class SimpleperfAdapter:
         if not os.path.exists(perf_data_path):
             raise FileNotFoundError(f"perf.data not found at {perf_data_path}")
 
-        # Determine python executable
-        python_exec = sys.executable
+        # Construct command prefix
+        cmd_prefix = [sys.executable]
         if getattr(sys, "frozen", False):
-            python_exec = "python"
+            cmd_prefix.append("--execute-script")
 
-        cmd = [
-            python_exec,
+        cmd = cmd_prefix + [
             self.report_html_path,
             "-i",
             perf_data_path,
