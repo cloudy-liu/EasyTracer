@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import atexit
 from pathlib import Path
+import subprocess
 import sys
 
 # Ensure the src directory is in the python path (must happen BEFORE importing easy_tracer.*)
@@ -31,6 +33,25 @@ from easy_tracer.presenters.combo_presenter import ComboPresenter
 from easy_tracer.ui.main_window import MainWindow
 
 
+def _kill_adb_server(adb_path: str) -> None:
+    """Kill ADB server on application exit to release file locks.
+
+    ADB uses a client-server architecture. When any adb command runs,
+    it starts a background ADB server daemon that persists independently.
+    This daemon holds a lock on the adb.exe in the dist directory,
+    preventing deletion. We must explicitly kill it on exit.
+    """
+    try:
+        subprocess.run(
+            [adb_path, "kill-server"],
+            capture_output=True,
+            timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+    except Exception:
+        pass  # Best effort cleanup
+
+
 def _get_app_root() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
@@ -46,6 +67,11 @@ def run() -> None:
     )
 
     adb_adapter = AdbAdapter(adb_path=config_service.adb_path)
+
+    # Register cleanup handler to kill ADB server on exit
+    # This prevents ADB daemon from holding locks on files in dist directory
+    atexit.register(_kill_adb_server, config_service.adb_path)
+
     device_service = DeviceService(adb_adapter)
     main_presenter = MainPresenter(device_service)
 
