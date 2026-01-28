@@ -30,15 +30,14 @@ class SystraceAdapter:
         if not os.path.exists(self.script_path):
             raise FileNotFoundError(f"Systrace script not found at {self.script_path}")
 
-        # Determine python executable
-        python_exec = sys.executable
+        # Construct command prefix
+        # If frozen, use the exe itself with --execute-script to run the python script
+        # entirely within the bundled environment
+        cmd_prefix = [sys.executable]
         if getattr(sys, "frozen", False):
-            # In frozen app, sys.executable is the exe itself.
-            # We assume user has python installed and in PATH as per prerequisites.
-            python_exec = "python"
+            cmd_prefix.append("--execute-script")
 
-        cmd = [
-            python_exec,
+        cmd = cmd_prefix + [
             self.script_path,
             "-o",
             output_file,
@@ -86,7 +85,11 @@ class SystraceAdapter:
         if not os.path.exists(self.script_path):
             raise FileNotFoundError(f"Systrace script not found at {self.script_path}")
 
-        cmd = [sys.executable, self.script_path, "-l", "-e", device_serial]
+        cmd_prefix = [sys.executable]
+        if getattr(sys, "frozen", False):
+            cmd_prefix.append("--execute-script")
+
+        cmd = cmd_prefix + [self.script_path, "-l", "-e", device_serial]
 
         try:
             result = subprocess.run(
