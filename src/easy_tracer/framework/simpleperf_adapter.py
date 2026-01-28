@@ -1,5 +1,8 @@
 import os
 import sys
+import io
+import contextlib
+import importlib.util
 import subprocess
 from typing import Optional
 from easy_tracer.framework.subprocess_utils import subprocess_hidden_window_kwargs
@@ -13,6 +16,39 @@ class SimpleperfAdapter:
         self.simpleperf_dir = os.path.join(current_dir, "external", "simpleperf")
         self.app_profiler_path = os.path.join(self.simpleperf_dir, "app_profiler.py")
         self.report_html_path = os.path.join(self.simpleperf_dir, "report_html.py")
+
+    def _import_and_run_script(self, script_path: str, module_name: str, args: list) -> str:
+        """Helper to import a script and run its main function with patched sys.argv"""
+        if self.simpleperf_dir not in sys.path:
+            sys.path.insert(0, self.simpleperf_dir)
+
+        spec = importlib.util.spec_from_file_location(module_name, script_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not load {module_name} from {script_path}")
+
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+
+        # Patch sys.argv
+        original_argv = sys.argv
+        sys.argv = [os.path.basename(script_path)] + args
+
+        output_capture = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(output_capture), contextlib.redirect_stderr(output_capture):
+                try:
+                    module.main()
+                except SystemExit as e:
+                    if e.code != 0:
+                        raise RuntimeError(f"{module_name} exited with code {e.code}")
+        except Exception as e:
+            captured = output_capture.getvalue()
+            raise RuntimeError(f"{module_name} failed: {str(e)}\nLog: {captured}")
+        finally:
+            sys.argv = original_argv
+
+        return output_capture.getvalue()
 
     def run_app_profiler(
         self,
@@ -34,45 +70,26 @@ class SimpleperfAdapter:
 
         perf_data_path = os.path.join(output_dir, "perf.data")
 
-        # Construct command prefix
-        # If frozen, use the exe itself with --execute-script
-        cmd_prefix = [sys.executable]
-        if getattr(sys, "frozen", False):
-            cmd_prefix.append("--execute-script")
-
-        cmd = cmd_prefix + [
-            self.app_profiler_path,
-            "-p",
-            app_name,
-            "-o",
-            perf_data_path,
-            "--serial",
-            device_serial,
-            "-r",
-            f"-f {frequency} --duration {duration_seconds}",
-        ]
-
-        if record_options:
-            cmd[-1] = record_options
+        # Change CWD to output_dir so relative paths work if script uses them
+        # app_profiler writes to CWD usually or uses -o
+        original_cwd = os.getcwd()
+        os.chdir(output_dir)
 
         try:
-            env = os.environ.copy()
-            env["PYTHONPATH"] = (
-                self.simpleperf_dir + os.pathsep + env.get("PYTHONPATH", "")
-            )
+            args = [
+                "-p", app_name,
+                "-o", perf_data_path,
+                "--serial", device_serial,
+                "-r", f"-f {frequency} --duration {duration_seconds}",
+            ]
 
-            subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True,
-                env=env,
-                cwd=output_dir,
-                **subprocess_hidden_window_kwargs(),
-            )
+            if record_options:
+                args[-1] = record_options # Replace the -r default
+
+            self._import_and_run_script(self.app_profiler_path, "app_profiler", args)
             return perf_data_path
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Simpleperf profiling failed: {e.stderr}") from e
+        finally:
+            os.chdir(original_cwd)
 
     def generate_html_report(self, perf_data_path: str, output_html_path: str) -> str:
         """Generates an HTML report from perf.data."""
@@ -84,36 +101,13 @@ class SimpleperfAdapter:
         if not os.path.exists(perf_data_path):
             raise FileNotFoundError(f"perf.data not found at {perf_data_path}")
 
-        # Construct command prefix
-        cmd_prefix = [sys.executable]
-        if getattr(sys, "frozen", False):
-            cmd_prefix.append("--execute-script")
-
-        cmd = cmd_prefix + [
-            self.report_html_path,
-            "-i",
-            perf_data_path,
-            "-o",
-            output_html_path,
+        args = [
+            "-i", perf_data_path,
+            "-o", output_html_path,
         ]
 
-        try:
-            env = os.environ.copy()
-            env["PYTHONPATH"] = (
-                self.simpleperf_dir + os.pathsep + env.get("PYTHONPATH", "")
-            )
-
-            subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True,
-                env=env,
-                **subprocess_hidden_window_kwargs(),
-            )
-            return output_html_path
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"HTML report generation failed: {e.stderr}") from e
+        self._import_and_run_script(self.report_html_path, "report_html", args)
+        return output_html_path
 
     def run_simpleperf_record(
         self,
