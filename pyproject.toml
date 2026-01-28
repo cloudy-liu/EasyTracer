@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "easy_tracer"
+version = "0.1.0"
+description = "A GUI for various performance tracing tools"
+requires-python = ">=3.9"
+dependencies = [
+    "PySide6",
+]
+
+[project.scripts]
+easytracer = "easy_tracer.main:run"
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "black",
+    "mypy",
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["easy_tracer*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+ignore_missing_imports = true
