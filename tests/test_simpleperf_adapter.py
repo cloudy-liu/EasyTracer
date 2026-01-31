@@ -12,10 +12,11 @@ class TestSimpleperfAdapter(unittest.TestCase):
     def setUp(self):
         self.adapter = SimpleperfAdapter()
 
+    @patch('os.chdir')
     @patch('subprocess.run')
     @patch('os.path.exists')
     @patch('os.makedirs')
-    def test_run_app_profiler_success(self, mock_makedirs, mock_exists, mock_run):
+    def test_run_app_profiler_success(self, mock_makedirs, mock_exists, mock_run, mock_chdir):
         # Mock paths existing
         mock_exists.return_value = True
         mock_run.return_value = MagicMock(returncode=0)
@@ -24,24 +25,27 @@ class TestSimpleperfAdapter(unittest.TestCase):
         app_name = "com.example.app"
         output_dir = "out"
 
-        path = self.adapter.run_app_profiler(
-            device_serial=device_serial,
-            app_name=app_name,
-            output_dir=output_dir,
-            duration_seconds=5
-        )
+        # Mock _import_and_run_script to avoid actual execution
+        with patch.object(self.adapter, '_import_and_run_script') as mock_run_script:
+            path = self.adapter.run_app_profiler(
+                device_serial=device_serial,
+                app_name=app_name,
+                output_dir=output_dir,
+                duration_seconds=5
+            )
 
-        expected_path = os.path.join(output_dir, "perf.data")
-        self.assertEqual(path, expected_path)
+            expected_path = os.path.join(output_dir, "perf.data")
+            self.assertEqual(path, expected_path)
 
-        # Verify command args
-        args = mock_run.call_args[0][0]
-        self.assertEqual(args[0], sys.executable)
-        self.assertIn("app_profiler.py", args[1])
-        self.assertIn("-p", args)
-        self.assertIn(app_name, args)
-        self.assertIn("--serial", args)
-        self.assertIn(device_serial, args)
+            # Verify arguments passed to the script runner
+            args = mock_run_script.call_args[0]
+            self.assertIn("app_profiler.py", args[0])
+            self.assertEqual(args[1], "app_profiler")
+            script_args = args[2]
+            self.assertIn("-p", script_args)
+            self.assertIn(app_name, script_args)
+            self.assertIn("--serial", script_args)
+            self.assertIn(device_serial, script_args)
 
     @patch('subprocess.run')
     def test_run_simpleperf_record_success(self, mock_run):
@@ -68,19 +72,20 @@ class TestSimpleperfAdapter(unittest.TestCase):
         self.assertEqual(args2[0], "adb")
         self.assertEqual(args2[3], "pull")
 
-    @patch('subprocess.run')
+    @patch('easy_tracer.framework.simpleperf_adapter.SimpleperfAdapter._import_and_run_script')
     @patch('os.path.exists')
-    def test_generate_html_report_success(self, mock_exists, mock_run):
+    def test_generate_html_report_success(self, mock_exists, mock_run_script):
         mock_exists.return_value = True
-        mock_run.return_value = MagicMock(returncode=0)
-
+        
         html_path = self.adapter.generate_html_report("perf.data", "report.html")
         self.assertEqual(html_path, "report.html")
 
-        args = mock_run.call_args[0][0]
-        self.assertIn("report_html.py", args[1])
-        self.assertIn("-i", args)
-        self.assertIn("perf.data", args)
+        args = mock_run_script.call_args[0]
+        # args: (script_path, module_name, script_args)
+        self.assertIn("report_html.py", args[0])
+        self.assertEqual(args[1], "report_html")
+        self.assertIn("-i", args[2])
+        self.assertIn("perf.data", args[2])
 
 if __name__ == '__main__':
     unittest.main()

@@ -17,6 +17,10 @@ class SystraceAdapter:
         self.systrace_package_root = os.path.join(
             current_dir, "external", "systrace", "systrace"
         )
+        # The 'devil' and 'common' modules are located in the parent directory of the systrace package
+        # i.e., src/easy_tracer/framework/external/systrace
+        self.catapult_root = os.path.dirname(self.systrace_package_root)
+
         self.script_dir = os.path.join(self.systrace_package_root, "systrace")
         self.script_path = os.path.join(self.script_dir, "run_systrace.py")
 
@@ -25,9 +29,22 @@ class SystraceAdapter:
         Dynamically imports run_systrace and runs its main_impl with args.
         Captures and returns stdout.
         """
+        # Ensure sys.path has the catapult root (for devil, common, dependency_manager)
+        if self.catapult_root not in sys.path:
+            sys.path.insert(0, self.catapult_root)
+
         # Ensure sys.path has the package root
         if self.systrace_package_root not in sys.path:
             sys.path.insert(0, self.systrace_package_root)
+
+        # COMPATIBILITY FIX: Python 3.13 removed 'pipes' module, but legacy devil/systrace relies on it.
+        # We inject a shim using shlex.quote which is the modern replacement.
+        if "pipes" not in sys.modules:
+            import shlex
+            import types
+            pipes_mock = types.ModuleType("pipes")
+            pipes_mock.quote = shlex.quote
+            sys.modules["pipes"] = pipes_mock
 
         # Also add the script directory for local imports if any (though systrace uses package imports)
         if self.script_dir not in sys.path:

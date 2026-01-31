@@ -36,7 +36,9 @@ class PerfettoAdapter:
                 "binder_lock",
             ]
 
-        device_output_path = f"/data/local/tmp/trace_{int(time.time())}.perfetto-trace"
+        # Use standard /data/misc/perfetto-traces/ which is writable by shell/traced
+        # Avoids permission denied errors common in /data/local/tmp on newer Android versions
+        device_output_path = f"/data/misc/perfetto-traces/trace_{int(time.time())}.perfetto-trace"
 
         # Build config commands
         # We'll use the simple command line arguments for perfetto instead of passing a full config file for now
