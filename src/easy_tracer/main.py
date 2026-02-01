@@ -59,6 +59,12 @@ def _get_app_root() -> Path:
 
 
 def run() -> None:
+    # =========================================================================
+    # FAST STARTUP: Create QApplication and show window FIRST
+    # Heavy service initialization is deferred to avoid blocking UI display
+    # =========================================================================
+    app = QtWidgets.QApplication(sys.argv)
+
     app_root = _get_app_root()
     config_service = ConfigService(
         config_path=app_root / "config.json",
@@ -66,31 +72,22 @@ def run() -> None:
         default_output_dir=app_root / "output",
     )
 
-    adb_adapter = AdbAdapter(adb_path=config_service.adb_path)
-
     # Register cleanup handler to kill ADB server on exit
-    # This prevents ADB daemon from holding locks on files in dist directory
     atexit.register(_kill_adb_server, config_service.adb_path)
 
-    device_service = DeviceService(adb_adapter)
-    main_presenter = MainPresenter(device_service)
-
+    # Lightweight adapters - these just store paths, no I/O
+    adb_adapter = AdbAdapter(adb_path=config_service.adb_path)
     systrace_adapter = SystraceAdapter(adb_path=config_service.adb_path)
-    capture_service = CaptureService(systrace_adapter, output_dir=config_service.output_dir)
-    systrace_presenter = SystracePresenter(capture_service)
-
     simpleperf_adapter = SimpleperfAdapter(adb_path=config_service.adb_path)
-    simpleperf_service = SimpleperfService(simpleperf_adapter, output_dir=config_service.output_dir)
-    simpleperf_presenter = SimpleperfPresenter(simpleperf_service)
-
     perfetto_adapter = PerfettoAdapter(adb_path=config_service.adb_path)
-    perfetto_service = PerfettoService(perfetto_adapter, output_dir=config_service.output_dir)
-    perfetto_presenter = PerfettoPresenter(perfetto_service)
-
     traceview_adapter = TraceviewAdapter(adb_path=config_service.adb_path)
-    traceview_service = TraceviewService(traceview_adapter, output_dir=config_service.output_dir)
-    traceview_presenter = TraceviewPresenter(traceview_service)
 
+    # Services - lightweight wrappers
+    device_service = DeviceService(adb_adapter)
+    capture_service = CaptureService(systrace_adapter, output_dir=config_service.output_dir)
+    simpleperf_service = SimpleperfService(simpleperf_adapter, output_dir=config_service.output_dir)
+    perfetto_service = PerfettoService(perfetto_adapter, output_dir=config_service.output_dir)
+    traceview_service = TraceviewService(traceview_adapter, output_dir=config_service.output_dir)
     combo_service = ComboService(
         systrace_service=capture_service,
         simpleperf_service=simpleperf_service,
@@ -98,9 +95,16 @@ def run() -> None:
         traceview_service=traceview_service,
         output_dir=config_service.output_dir,
     )
+
+    # Presenters
+    main_presenter = MainPresenter(device_service)
+    systrace_presenter = SystracePresenter(capture_service)
+    simpleperf_presenter = SimpleperfPresenter(simpleperf_service)
+    perfetto_presenter = PerfettoPresenter(perfetto_service)
+    traceview_presenter = TraceviewPresenter(traceview_service)
     combo_presenter = ComboPresenter(combo_service)
 
-    app = QtWidgets.QApplication(sys.argv)
+    # Create and show window immediately
     window = MainWindow(
         main_presenter,
         systrace_presenter,
@@ -111,6 +115,7 @@ def run() -> None:
         config_service,
     )
     window.show()
+
     sys.exit(app.exec())
 
 

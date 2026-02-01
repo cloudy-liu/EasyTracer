@@ -5,58 +5,32 @@ import contextlib
 import importlib.util
 from typing import List, Optional
 
+
 class SystraceAdapter:
     def __init__(self, adb_path: str = "adb"):
         self.adb_path = adb_path
-        # Calculate path to run_systrace.py directory
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        # The structure is src/easy_tracer/framework/external/systrace/systrace/systrace/run_systrace.py
-        # We need to add the folder containing the 'systrace' package to sys.path
-        # So we can do 'from systrace import ...'
-        # The package root seems to be: src/easy_tracer/framework/external/systrace/systrace
-        self.systrace_package_root = os.path.join(
-            current_dir, "external", "systrace", "systrace"
-        )
-        # The 'devil' and 'common' modules are located in the parent directory of the systrace package
-        # i.e., src/easy_tracer/framework/external/systrace
-        self.catapult_root = os.path.dirname(self.systrace_package_root)
 
-        self.script_dir = os.path.join(self.systrace_package_root, "systrace")
-        self.script_path = os.path.join(self.script_dir, "run_systrace.py")
+        # New simplified structure: external/systrace/systrace.py is the entry point
+        self.systrace_root = os.path.join(current_dir, "external", "systrace")
+        self.script_path = os.path.join(self.systrace_root, "systrace.py")
 
     def _import_and_run_systrace(self, args: List[str]) -> str:
         """
-        Dynamically imports run_systrace and runs its main_impl with args.
+        Dynamically imports systrace.py and runs its main_impl with args.
         Captures and returns stdout.
         """
-        # Ensure sys.path has the catapult root (for devil, common, dependency_manager)
-        if self.catapult_root not in sys.path:
-            sys.path.insert(0, self.catapult_root)
+        # Ensure sys.path has the systrace root for imports
+        if self.systrace_root not in sys.path:
+            sys.path.insert(0, self.systrace_root)
 
-        # Ensure sys.path has the package root
-        if self.systrace_package_root not in sys.path:
-            sys.path.insert(0, self.systrace_package_root)
-
-        # COMPATIBILITY FIX: Python 3.13 removed 'pipes' module, but legacy devil/systrace relies on it.
-        # We inject a shim using shlex.quote which is the modern replacement.
-        if "pipes" not in sys.modules:
-            import shlex
-            import types
-            pipes_mock = types.ModuleType("pipes")
-            pipes_mock.quote = shlex.quote
-            sys.modules["pipes"] = pipes_mock
-
-        # Also add the script directory for local imports if any (though systrace uses package imports)
-        if self.script_dir not in sys.path:
-            sys.path.insert(0, self.script_dir)
-
-        # Import run_systrace module
-        spec = importlib.util.spec_from_file_location("run_systrace", self.script_path)
+        # Import systrace module
+        spec = importlib.util.spec_from_file_location("systrace", self.script_path)
         if spec is None or spec.loader is None:
-            raise ImportError(f"Could not load run_systrace from {self.script_path}")
+            raise ImportError(f"Could not load systrace from {self.script_path}")
 
         module = importlib.util.module_from_spec(spec)
-        sys.modules["run_systrace"] = module
+        sys.modules["systrace"] = module
         spec.loader.exec_module(module)
 
         # Capture output
@@ -66,12 +40,11 @@ class SystraceAdapter:
             with contextlib.redirect_stdout(output_capture), contextlib.redirect_stderr(output_capture):
                 try:
                     # main_impl expects argv where argv[0] is script name
-                    module.main_impl(["run_systrace.py"] + args)
+                    module.main_impl(["systrace.py"] + args)
                 except SystemExit as e:
-                    if e.code != 0:
+                    if e.code != 0 and e.code is not None:
                         raise RuntimeError(f"Systrace exited with code {e.code}")
         except Exception as e:
-            # Check if we have any captured output to help debug
             captured = output_capture.getvalue()
             raise RuntimeError(f"Systrace failed: {str(e)}\nLog: {captured}")
 
@@ -135,10 +108,6 @@ class SystraceAdapter:
         return categories
 
     def get_ftrace_events(self, device_serial: str) -> List[str]:
-        # Keep ADB implementation for this as it uses shell cat directly
-        # No change needed here as it uses AdbAdapter logic essentially via subprocess calling adb directly
-        # Wait, the previous implementation used subprocess.run([self.adb_path, ...])
-        # That is fine because adb is an external binary, not a python script.
         import subprocess
         from easy_tracer.framework.subprocess_utils import subprocess_hidden_window_kwargs
 
@@ -168,4 +137,3 @@ class SystraceAdapter:
             return events
         except subprocess.CalledProcessError as e:
             raise RuntimeError(f"Failed to list ftrace events: {e.stderr}") from e
-

@@ -214,14 +214,18 @@ class SystracePanel(QtWidgets.QWidget):
         busy = self.presenter.is_loading_categories or self.presenter.is_loading_ftrace or self.presenter.is_capturing
         self.progress.setVisible(busy)
 
-        if self.presenter.categories and self.atrace_list.count() == 0:
-            self.atrace_list.clear()
-            defaults = {"sched", "freq", "idle", "am", "wm", "view", "gfx", "input", "dalvik", "binder_driver", "binder_lock"}
-            for cat in self.presenter.categories:
-                item = QtWidgets.QListWidgetItem(cat)
-                item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
-                item.setCheckState(QtCore.Qt.Checked if cat in defaults else QtCore.Qt.Unchecked)
-                self.atrace_list.addItem(item)
+        # FIX: Remove count() == 0 check - always sync UI when presenter has data
+        # The list is cleared in _on_load_categories before loading, so we just need
+        # to populate when data arrives
+        if self.presenter.categories and not self.presenter.is_loading_categories:
+            # Only populate if list is empty (was cleared before load)
+            if self.atrace_list.count() == 0:
+                defaults = {"sched", "freq", "idle", "am", "wm", "view", "gfx", "input", "dalvik", "binder_driver", "binder_lock"}
+                for cat in self.presenter.categories:
+                    item = QtWidgets.QListWidgetItem(cat)
+                    item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+                    item.setCheckState(QtCore.Qt.Checked if cat in defaults else QtCore.Qt.Unchecked)
+                    self.atrace_list.addItem(item)
 
         if self.presenter.ftrace_events:
             self._populate_ftrace_tree(self.presenter.ftrace_events, self.ftrace_filter.text())
