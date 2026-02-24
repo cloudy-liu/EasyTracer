@@ -1,8 +1,28 @@
 # EasyTracer 🚀
 
+![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Windows-0078D6?logo=windows&logoColor=white)
+![GUI](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
+
 EasyTracer 是一个面向 Android 性能分析场景的桌面 GUI 工具，统一封装了
 `Systrace`、`Perfetto`、`Simpleperf`、`Traceview` 等常用链路，降低抓取门槛，
 适合日常性能定位、回归比对和问题复现。
+
+## ⚡ 30 秒快速开始
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -U pip
+.\.venv\Scripts\python -m pip install -r requirements.txt
+.\.venv\Scripts\python src/easy_tracer/main.py
+```
+
+首次运行前请先确认 ADB 可用：
+
+```powershell
+adb version
+adb devices -l
+```
 
 ## ✨ 核心能力
 
@@ -28,6 +48,12 @@ EasyTracer 是一个面向 Android 性能分析场景的桌面 GUI 工具，统�
 - 已安装 Python 3.9+ 并加入 `PATH`
 - 已安装 `adb` 并可在终端直接执行
 - Android 设备已开启开发者选项与 USB 调试
+
+如果尚未安装 ADB，建议使用官方 Android Platform Tools：
+
+- 下载地址：https://developer.android.com/tools/releases/platform-tools
+- 下载后解压，并将目录加入系统 `PATH`
+- 重新打开终端后执行 `adb version` 验证
 
 可通过以下命令自检：
 
@@ -57,6 +83,12 @@ python -m venv .venv
 ```powershell
 .\.venv\Scripts\python src/easy_tracer/main.py
 ```
+
+运行成功判定：
+
+- 能看到 EasyTracer 主窗口（顶部工具栏 + 左侧导航 + 主内容区）。
+- 即使未连接设备，应用也应正常启动（只是无法开始抓取）。
+- 连接设备后执行 `adb devices -l`，状态为 `device` 时可正常采集。
 
 ## 🧪 自检模式（推荐）
 
@@ -155,6 +187,14 @@ pytest -q
 ```powershell
 .\.venv\Scripts\python tests/verify_exe.py
 ```
+
+## 🤝 贡献与许可证
+
+欢迎通过 Issue / PR 一起完善项目。
+
+- 提交前建议先运行 `pytest -q`。
+- Commit message 采用 Conventional Commits（详见仓库 `AGENTS.md` 约定）。
+- 当前仓库尚未提供 `LICENSE` 文件；如需对外分发或商用，请先补充许可证声明。
 
 ---
 
