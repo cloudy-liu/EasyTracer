@@ -1,6 +1,10 @@
 
 PerfAllInOne_release_2023_04_20_21_28_52/
 
+# Local agent instruction files (keep local only)
+AGENTS.md
+CLAUDE.md
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
