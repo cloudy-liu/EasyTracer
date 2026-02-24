@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 # Copyright (c) 2011 The Chromium Authors. All rights reserved.
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
@@ -11,19 +8,15 @@ This is a tool for capturing a trace that includes data from both userland and
 the kernel.  It creates an HTML file for visualizing the trace.
 """
 
+import importlib.resources
 import importlib.util
 import argparse
 import os
 import sys
 
-# ============================================================================
-# PATH SETUP - Ensure this package can find its submodules
-# ============================================================================
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-if _SCRIPT_DIR not in sys.path:
-    sys.path.insert(0, _SCRIPT_DIR)
-
-import util
+from . import util
+from .agents import atrace_agent
+from .agents import android_process_data_agent
 
 # The default agent directory.
 DEFAULT_AGENT_DIR = 'agents'
@@ -97,18 +90,16 @@ def parse_options(argv):
     return (args, args.categories)
 
 
-def write_trace_html(html_filename, script_dir, agents):
+def write_trace_html(html_filename, agents):
     """Writes out a trace html file.
 
     Args:
         html_filename: The name of the file to write.
-        script_dir: The directory containing this script.
         agents: The systrace agents.
     """
-    systrace_dir = os.path.abspath(os.path.dirname(__file__))
-    html_prefix = read_asset(systrace_dir, 'prefix.html')
-    html_suffix = read_asset(systrace_dir, 'suffix.html')
-    trace_viewer_html = read_asset(script_dir, 'systrace_trace_viewer.html')
+    html_prefix = read_asset('prefix.html')
+    html_suffix = read_asset('suffix.html')
+    trace_viewer_html = read_asset('systrace_trace_viewer.html')
 
     # Open the file in text mode with explicit encoding
     with open(html_filename, 'w', encoding='utf-8') as html_file:
@@ -140,40 +131,43 @@ def create_agents(options, categories):
     Returns:
         The list of systrace agents.
     """
-    agent_dirs = [os.path.join(os.path.dirname(__file__), DEFAULT_AGENT_DIR)]
-    if options.agent_dirs:
-        agent_dirs.extend(options.agent_dirs.split(','))
-
     agents = []
-    for agent_dir in agent_dirs:
-        if not agent_dir:
+    # Built-in agents are bundled as package modules (no filesystem scanning).
+    for module in (android_process_data_agent, atrace_agent):
+        try:
+            agent = module.try_create_agent(options, categories)
+        except Exception as e:
+            print(f"Warning: Failed to init agent {module.__name__}: {e}", file=sys.stderr)
             continue
-        if not os.path.isdir(agent_dir):
-            continue
-        for filename in os.listdir(agent_dir):
-            (module_name, ext) = os.path.splitext(filename)
-            if (ext != '.py' or module_name == '__init__'
-                    or module_name.endswith('_unittest')):
-                continue
+        if agent:
+            agents.append(agent)
 
-            # Use importlib instead of deprecated imp module
-            module_path = os.path.join(agent_dir, filename)
-            spec = importlib.util.spec_from_file_location(module_name, module_path)
-            if spec is None or spec.loader is None:
+    # Optional: load extra agent modules from user-supplied directories.
+    # This keeps compatibility with the original systrace CLI option.
+    if options.agent_dirs:
+        for agent_dir in options.agent_dirs.split(","):
+            agent_dir = agent_dir.strip()
+            if not agent_dir or not os.path.isdir(agent_dir):
                 continue
-
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            try:
-                spec.loader.exec_module(module)
-            except Exception as e:
-                print(f"Warning: Failed to load agent {module_name}: {e}", file=sys.stderr)
-                continue
-
-            if hasattr(module, 'try_create_agent'):
-                agent = module.try_create_agent(options, categories)
-                if agent:
-                    agents.append(agent)
+            for filename in os.listdir(agent_dir):
+                (module_name, ext) = os.path.splitext(filename)
+                if ext != ".py" or module_name in {"__init__"}:
+                    continue
+                module_path = os.path.join(agent_dir, filename)
+                try:
+                    spec = importlib.util.spec_from_file_location(module_name, module_path)
+                    if spec is None or spec.loader is None:
+                        continue
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[module_name] = module
+                    spec.loader.exec_module(module)
+                except Exception as e:
+                    print(f"Warning: Failed to load agent {module_name}: {e}", file=sys.stderr)
+                    continue
+                if hasattr(module, "try_create_agent"):
+                    agent = module.try_create_agent(options, categories)
+                    if agent:
+                        agents.append(agent)
 
     return agents
 
@@ -200,17 +194,26 @@ def main_impl(argv):
             # Nothing more to do.
             return
 
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    write_trace_html(options.output_file, script_dir, agents)
+    # If we're only listing categories, agents have already printed the list.
+    # Avoid writing an (empty) HTML trace file that pollutes the working dir and
+    # also confuses callers that parse stdout.
+    if options.list_categories:
+        return
+
+    write_trace_html(options.output_file, agents)
 
 
 def main():
     main_impl(sys.argv)
 
 
-def read_asset(src_dir, filename):
-    with open(os.path.join(src_dir, filename), 'r', encoding='utf-8') as f:
-        return f.read()
+def read_asset(filename):
+    # Package data access that works in zip/pyinstaller environments.
+    return (
+        importlib.resources.files(__package__)
+        .joinpath(filename)
+        .read_text(encoding="utf-8")
+    )
 
 
 if __name__ == '__main__':

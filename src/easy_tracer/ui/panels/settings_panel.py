@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 from easy_tracer.services.config_service import ConfigService
 
 
 class SettingsPanel(QtWidgets.QWidget):
+    settings_saved = QtCore.Signal(str, str)  # adb_path, output_dir
+
     def __init__(self, config_service: ConfigService):
         super().__init__()
         self.config_service = config_service
@@ -47,4 +49,5 @@ class SettingsPanel(QtWidgets.QWidget):
         adb_path = self.adb_input.text().strip() or "adb"
         output_dir = self.output_input.text().strip()
         self.config_service.update(adb_path=adb_path, output_dir=output_dir)
-        self.status_label.setText("Saved. Restart app to apply changes.")
+        self.status_label.setText("Saved and applied.")
+        self.settings_saved.emit(self.config_service.adb_path, self.config_service.output_dir)

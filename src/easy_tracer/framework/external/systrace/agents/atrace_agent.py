@@ -11,16 +11,8 @@ import time
 import zlib
 import os
 
-# ============================================================================
-# PATH SETUP
-# ============================================================================
-_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_PARENT_DIR = os.path.dirname(_SCRIPT_DIR)
-if _PARENT_DIR not in sys.path:
-    sys.path.insert(0, _PARENT_DIR)
-
-import systrace_agent
-import util
+from .. import systrace_agent
+from .. import util
 
 # Text that ADB sends, but does not need to be displayed to the user.
 ADB_IGNORE_REGEXP = r'^capturing trace\.\.\. done|^capturing trace\.\.\.'
@@ -64,7 +56,7 @@ def try_create_agent(options, categories):
     if options.from_file is not None:
         return AtraceAgent(options, categories)
 
-    device_sdk_version = util.get_device_sdk_version()
+    device_sdk_version = util.get_device_sdk_version(options.device_serial)
     if device_sdk_version >= 18:
         if options.boot:
             # atrace --async_stop, which is used by BootAgent, does not work properly
@@ -190,7 +182,12 @@ class AtraceAgent(systrace_agent.SystraceAgent):
         stderr_thread.start()
 
         # Holds the trace data returned by ADB.
-        trace_data = []
+        #
+        # NOTE: When atrace is invoked with -z (default), the payload is
+        # zlib-compressed bytes. Do NOT decode these bytes as UTF-8, otherwise the
+        # compressed stream gets corrupted and the generated HTML becomes
+        # unreadable.
+        trace_data: list[bytes] = []
         # Keep track of the current line so we can find the TRACE_START_REGEXP.
         current_line = ''
         # Set to True once we've received the TRACE_START_REGEXP.
@@ -218,14 +215,19 @@ class AtraceAgent(systrace_agent.SystraceAgent):
                     # alive and print anything sent to stderr.
                     break
 
-                # Handle bytes vs str - convert bytes to str if needed
-                if isinstance(chunk, bytes):
-                    chunk = chunk.decode('utf-8', errors='replace')
-
                 if reading_trace_data:
                     # Save, but don't print, the trace data.
-                    trace_data.append(chunk)
+                    if isinstance(chunk, bytes):
+                        trace_data.append(chunk)
+                    else:
+                        # Should be rare (stdout is read in binary mode), but keep
+                        # this robust if upstream changes.
+                        trace_data.append(chunk.encode("utf-8", errors="replace"))
                 else:
+                    # We are still parsing human-readable adb output to detect the
+                    # TRACE: marker; decode bytes to text.
+                    if isinstance(chunk, bytes):
+                        chunk = chunk.decode("utf-8", errors="replace")
                     if not self._expect_trace:
                         sys.stdout.write(chunk)
                     else:
@@ -292,10 +294,19 @@ class AtraceAgent(systrace_agent.SystraceAgent):
         Returns:
             The processed trace data.
         """
-        trace_data = ''.join(trace_data)
-        if trace_data:
-            trace_data = strip_and_decompress_trace(trace_data)
-        if not trace_data:
+        # _collect_trace_data returns raw bytes chunks (for compressed traces).
+        # Keep compatibility if a legacy caller still passes strings.
+        if trace_data and isinstance(trace_data[0], (bytes, bytearray)):
+            trace_blob: bytes | str = b"".join(trace_data)  # type: ignore[arg-type]
+        else:
+            trace_blob = ''.join(trace_data)  # type: ignore[list-item]
+
+        if trace_blob:
+            trace_text = strip_and_decompress_trace(trace_blob)
+        else:
+            trace_text = ""
+
+        if not trace_text:
             print('No data was captured.  Output file was not written.', file=sys.stderr)
             sys.exit(1)
 
@@ -304,7 +315,7 @@ class AtraceAgent(systrace_agent.SystraceAgent):
             ps_dump = do_preprocess_adb_cmd('ps -t', self._options.device_serial)
             if ps_dump is not None:
                 thread_names = extract_thread_list(ps_dump)
-                trace_data = fix_thread_names(trace_data, thread_names)
+                trace_text = fix_thread_names(trace_text, thread_names)
 
         if self._options.fix_tgids:
             # Issue printf command to device and patch tgids
@@ -313,12 +324,12 @@ class AtraceAgent(systrace_agent.SystraceAgent):
                                                 self._options.device_serial)
             if procfs_dump is not None:
                 pid2_tgid = extract_tgids(procfs_dump)
-                trace_data = fix_missing_tgids(trace_data, pid2_tgid)
+                trace_text = fix_missing_tgids(trace_text, pid2_tgid)
 
         if self._options.fix_circular:
-            trace_data = fix_circular_traces(trace_data)
+            trace_text = fix_circular_traces(trace_text)
 
-        return trace_data
+        return trace_text
 
 
 class AtraceLegacyAgent(AtraceAgent):
@@ -562,10 +573,15 @@ def strip_and_decompress_trace(trace_data):
     Returns:
         The decompressed trace data as string.
     """
-    # Convert to bytes if string for consistent processing
+    # Convert to bytes if string for consistent processing.
+    #
+    # Preferred input is bytes. If a string is supplied (legacy behavior),
+    # attempt to preserve arbitrary byte values via latin-1 (0..255) first.
     if isinstance(trace_data, str):
-        # Use raw_unicode_escape to preserve byte values
-        trace_bytes = trace_data.encode('raw_unicode_escape')
+        try:
+            trace_bytes = trace_data.encode("latin-1")
+        except UnicodeEncodeError:
+            trace_bytes = trace_data.encode("utf-8", errors="replace")
     else:
         trace_bytes = trace_data
 
@@ -696,8 +712,15 @@ def fix_circular_traces(out):
 
 def do_popen(args):
     try:
+        kwargs = {}
+        if sys.platform == 'win32':
+            kwargs['creationflags'] = getattr(
+                subprocess, 'CREATE_NO_WINDOW', 0x0800)
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            kwargs['startupinfo'] = si
         adb = subprocess.Popen(args, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
+                               stderr=subprocess.PIPE, **kwargs)
     except OSError as error:
         print('The command "%s" failed with the following error:' %
               ' '.join(args), file=sys.stderr)

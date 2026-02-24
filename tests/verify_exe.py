@@ -2,17 +2,20 @@ import subprocess
 import time
 import os
 import sys
+from pathlib import Path
 
 def verify_exe():
-    # Path to the generated EXE
-    exe_path = os.path.abspath(os.path.join(
-        os.path.dirname(__file__),
-        "../../easy_tracer/dist/easytracer/easy_tracer.exe"
-    ))
+    # Path to the generated EXE (repo-local). Keep this robust against renames.
+    repo_root = Path(__file__).resolve().parents[1]
+    candidates = [
+        repo_root / "dist" / "easy_tracer" / "easy_tracer.exe",
+        repo_root / "dist" / "easy_tracer" / "easy_tracer",  # non-Windows fallback
+    ]
+    exe_path = next((p for p in candidates if p.exists()), candidates[0])
 
     print(f"Verifying EXE at: {exe_path}")
 
-    if not os.path.exists(exe_path):
+    if not exe_path.exists():
         print(f"Error: EXE not found at {exe_path}")
         sys.exit(1)
 
@@ -21,7 +24,7 @@ def verify_exe():
         # Start the process
         # We use creationflags to suppress the console window if it's a GUI app,
         # but for testing we want to see output if possible.
-        process = subprocess.Popen(exe_path)
+        process = subprocess.Popen([str(exe_path)])
 
         # Wait for a few seconds to let it initialize
         print("Waiting for 5 seconds...")

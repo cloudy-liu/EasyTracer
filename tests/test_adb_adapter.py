@@ -31,6 +31,26 @@ class TestAdbAdapter(unittest.TestCase):
         self.assertEqual(devices[0].model, "Nexus_5X")
 
     @patch('subprocess.run')
+    def test_list_devices_with_daemon_output(self, mock_run):
+        # Mock adb output with daemon startup message
+        mock_output = """* daemon not running; starting now at tcp:5037
+* daemon started successfully
+List of devices attached
+1234567890abcde        device product:bullhead model:Nexus_5X device:bullhead transport_id:1
+"""
+        mock_run.return_value = MagicMock(
+            stdout=mock_output,
+            returncode=0
+        )
+
+        devices = self.adapter.list_devices()
+
+        # Should only find the real device, ignoring the daemon messages
+        self.assertEqual(len(devices), 1)
+        self.assertEqual(devices[0].serial, "1234567890abcde")
+        self.assertEqual(devices[0].status, "device")
+
+    @patch('subprocess.run')
     def test_list_devices_empty(self, mock_run):
         mock_output = "List of devices attached\n"
         mock_run.return_value = MagicMock(

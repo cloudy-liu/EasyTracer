@@ -1,25 +1,117 @@
-from __future__ import annotations
-
 from typing import Optional
 from PySide6 import QtCore, QtWidgets
 from easy_tracer.presenters.systrace_presenter import SystracePresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
+from easy_tracer.ui.panels.base_panel import BasePanel
+from easy_tracer.ui.dialogs.base_settings_dialog import BaseSettingsDialog
+
+
+DEFAULT_ATRACE_CATEGORIES = [
+    "sched",
+    "freq",
+    "idle",
+    "am",
+    "wm",
+    "view",
+    "gfx",
+    "input",
+    "dalvik",
+    "binder_driver",
+    "binder_lock",
+]
+DEFAULT_ATRACE_SET = set(DEFAULT_ATRACE_CATEGORIES)
 
 
 class _UpdateEmitter(QtCore.QObject):
     updated = QtCore.Signal()
 
 
-class SystracePanel(QtWidgets.QWidget):
-    def __init__(self, presenter: SystracePresenter, device_serial: Optional[str], default_output_dir: str):
+class SystraceSettingsDialog(BaseSettingsDialog):
+    def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
+        super().__init__(parent, "Systrace Settings")
+        self.resize(520, 360)
+        self.content_layout.setHorizontalSpacing(10)
+        self.content_layout.setVerticalSpacing(10)
+
+        self.buffer_spin = QtWidgets.QSpinBox()
+        self.buffer_spin.setRange(1024, 1024 * 1024)
+        self.buffer_spin.setValue(10240)
+        self.buffer_spin.setSuffix(" KB")
+
+        self.enhance_cb = QtWidgets.QCheckBox("增强线程名显示")
+
+        self.subfolder_cb = QtWidgets.QCheckBox("Create subfolder")
+        self.subfolder_cb.setChecked(True)
+
+    def install_capture_widgets(
+        self,
+        duration_combo: QtWidgets.QComboBox,
+        custom_duration: QtWidgets.QSpinBox,
+        target_combo: QtWidgets.QComboBox,
+        custom_target: QtWidgets.QLineEdit,
+        output_path: OutputPathWidget,
+    ) -> None:
+        duration_row = QtWidgets.QWidget()
+        duration_layout = QtWidgets.QHBoxLayout(duration_row)
+        duration_layout.setContentsMargins(0, 0, 0, 0)
+        duration_layout.setSpacing(6)
+        duration_layout.addWidget(duration_combo)
+        duration_layout.addWidget(custom_duration)
+
+        target_row = QtWidgets.QWidget()
+        target_layout = QtWidgets.QHBoxLayout(target_row)
+        target_layout.setContentsMargins(0, 0, 0, 0)
+        target_layout.setSpacing(6)
+        target_layout.addWidget(target_combo)
+        target_layout.addWidget(custom_target)
+
+        capture_group = QtWidgets.QGroupBox("Capture")
+        capture_layout = QtWidgets.QFormLayout(capture_group)
+        capture_layout.setContentsMargins(8, 8, 8, 8)
+        capture_layout.setHorizontalSpacing(8)
+        capture_layout.setVerticalSpacing(8)
+        capture_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+        capture_layout.addRow("Duration:", duration_row)
+        capture_layout.addRow("Target:", target_row)
+
+        output_group = QtWidgets.QGroupBox("Output")
+        output_layout = QtWidgets.QVBoxLayout(output_group)
+        output_layout.setContentsMargins(8, 8, 8, 8)
+        output_layout.setSpacing(6)
+        output_layout.addWidget(output_path)
+        output_layout.addWidget(self.subfolder_cb)
+
+        advanced_group = QtWidgets.QGroupBox("Advanced")
+        advanced_layout = QtWidgets.QFormLayout(advanced_group)
+        advanced_layout.setContentsMargins(8, 8, 8, 8)
+        advanced_layout.setHorizontalSpacing(8)
+        advanced_layout.setVerticalSpacing(8)
+        advanced_layout.addRow("Buffer Size:", self.buffer_spin)
+        advanced_layout.addRow(self.enhance_cb)
+
+        self.add_widget(capture_group)
+        self.add_widget(output_group)
+        self.add_widget(advanced_group)
+
+
+class SystracePanel(BasePanel):
+    def __init__(
+        self,
+        presenter: SystracePresenter,
+        device_serial: Optional[str],
+        default_output_dir: str,
+    ):
         super().__init__()
         self.presenter = presenter
         self.device_serial = device_serial
         self.default_output_dir = default_output_dir
+        self._auto_loaded_serial: Optional[str] = None
         self._update_emitter = _UpdateEmitter()
         self._update_emitter.updated.connect(self.update_view)
         self.presenter.bind_view_update(self._update_emitter.updated.emit)
+
+        self.settings_dialog = SystraceSettingsDialog(self)
 
         self.duration_combo = QtWidgets.QComboBox()
         self.duration_combo.addItems(["5s", "7s", "10s", "30s", "Custom"])
@@ -29,11 +121,6 @@ class SystracePanel(QtWidgets.QWidget):
         self.custom_duration.setSuffix(" s")
         self.custom_duration.setEnabled(False)
         self.duration_combo.currentTextChanged.connect(self._toggle_custom_duration)
-
-        self.buffer_spin = QtWidgets.QSpinBox()
-        self.buffer_spin.setRange(1024, 1024 * 1024)
-        self.buffer_spin.setValue(10240)
-        self.buffer_spin.setSuffix(" KB")
 
         self.target_combo = QtWidgets.QComboBox()
         self.target_combo.addItems(
@@ -51,16 +138,53 @@ class SystracePanel(QtWidgets.QWidget):
         self.custom_target.setEnabled(False)
         self.target_combo.currentTextChanged.connect(self._toggle_custom_target)
 
+        self.output_path = OutputPathWidget(
+            default_output_dir,
+            label="Output (Settings):",
+            editable=False,
+            tooltip="Shared output directory. Edit it in Settings panel.",
+        )
+
+        self.settings_btn = QtWidgets.QPushButton("Settings")
+        self.settings_btn.clicked.connect(self._open_settings)
+
+        self.settings_dialog.install_capture_widgets(
+            self.duration_combo,
+            self.custom_duration,
+            self.target_combo,
+            self.custom_target,
+            self.output_path,
+        )
+
+        self.settings_summary = QtWidgets.QLabel()
+        self.settings_summary.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Fixed,
+        )
+        # Styling is handled globally via app stylesheet.
+        self._refresh_settings_summary()
+
         self.atrace_filter = QtWidgets.QLineEdit()
         self.atrace_filter.setPlaceholderText("Filter categories...")
         self.atrace_filter.textChanged.connect(self._apply_atrace_filter)
         self.atrace_list = QtWidgets.QListWidget()
         self.atrace_list.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+        self.atrace_list.setViewMode(QtWidgets.QListView.IconMode)
+        self.atrace_list.setFlow(QtWidgets.QListView.LeftToRight)
+        self.atrace_list.setWrapping(True)
+        self.atrace_list.setResizeMode(QtWidgets.QListView.Adjust)
+        self.atrace_list.setMovement(QtWidgets.QListView.Static)
+        self.atrace_list.setSpacing(2)
+        self.atrace_list.setWordWrap(False)
+        self.atrace_list.setUniformItemSizes(True)
+        self.atrace_list.setGridSize(QtCore.QSize(120, 24))
 
         self.load_categories_button = QtWidgets.QPushButton("检测设备")
         self.load_categories_button.setEnabled(False)
 
         presets_layout = QtWidgets.QHBoxLayout()
+        presets_layout.setContentsMargins(0, 0, 0, 0)
+        presets_layout.setSpacing(4)
         self.preset_min = QtWidgets.QPushButton("最小可用")
         self.preset_graphics = QtWidgets.QPushButton("图形分析")
         self.preset_system = QtWidgets.QPushButton("系统分析")
@@ -84,6 +208,8 @@ class SystracePanel(QtWidgets.QWidget):
         self.tabs = QtWidgets.QTabWidget()
         atrace_tab = QtWidgets.QWidget()
         atrace_layout = QtWidgets.QVBoxLayout(atrace_tab)
+        atrace_layout.setContentsMargins(0, 0, 0, 0)
+        atrace_layout.setSpacing(6)
         atrace_layout.addWidget(self.atrace_filter)
         atrace_layout.addLayout(presets_layout)
         atrace_layout.addWidget(self.load_categories_button, 0, QtCore.Qt.AlignRight)
@@ -91,6 +217,8 @@ class SystracePanel(QtWidgets.QWidget):
 
         ftrace_tab = QtWidgets.QWidget()
         ftrace_layout = QtWidgets.QVBoxLayout(ftrace_tab)
+        ftrace_layout.setContentsMargins(0, 0, 0, 0)
+        ftrace_layout.setSpacing(6)
         ftrace_layout.addWidget(self.ftrace_filter)
         ftrace_layout.addWidget(self.load_ftrace_button, 0, QtCore.Qt.AlignRight)
         ftrace_layout.addWidget(self.ftrace_tree, 1)
@@ -98,55 +226,21 @@ class SystracePanel(QtWidgets.QWidget):
         self.tabs.addTab(atrace_tab, "标准 Atrace")
         self.tabs.addTab(ftrace_tab, "设备 Ftrace")
 
-        self.enhance_cb = QtWidgets.QCheckBox("Enhance Trace (增强线程名显示)")
-        self.output_path = OutputPathWidget(default_output_dir)
-
-        self.start_button = QtWidgets.QPushButton("Start Capture")
-        self.start_button.setEnabled(False)
-
-        self.progress = QtWidgets.QProgressBar()
-        self.progress.setRange(0, 0)
-        self.progress.setVisible(False)
-
-        self.status_label = QtWidgets.QLabel("")
-        self.error_label = QtWidgets.QLabel("")
-        self.error_label.setStyleSheet("color: #b00020;")
-        self.result_label = QtWidgets.QLabel("")
-        self.result_label.setStyleSheet("color: #1b5e20;")
-
-        basic_form = QtWidgets.QFormLayout()
-        duration_row = QtWidgets.QHBoxLayout()
-        duration_row.addWidget(self.duration_combo)
-        duration_row.addWidget(self.custom_duration)
-        duration_container = QtWidgets.QWidget()
-        duration_container.setLayout(duration_row)
-        basic_form.addRow("Duration:", duration_container)
-        basic_form.addRow("Buffer Size:", self.buffer_spin)
-
-        target_row = QtWidgets.QHBoxLayout()
-        target_row.addWidget(self.target_combo, 1)
-        target_row.addWidget(self.custom_target, 1)
-        target_container = QtWidgets.QWidget()
-        target_container.setLayout(target_row)
-        basic_form.addRow("Target:", target_container)
-
+        # Refactored Layout
         layout = QtWidgets.QVBoxLayout(self)
-        layout.addWidget(QtWidgets.QLabel("Systrace Configuration"))
-        layout.addLayout(basic_form)
-        layout.addWidget(QtWidgets.QLabel("Trace Categories"))
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+
+        top_controls_layout = QtWidgets.QHBoxLayout()
+        top_controls_layout.addWidget(QtWidgets.QLabel("Capture:"))
+        top_controls_layout.addWidget(self.settings_summary, 1)
+        top_controls_layout.addWidget(self.settings_btn)
+
+        layout.addLayout(top_controls_layout)
         layout.addWidget(self.tabs, 1)
-        layout.addWidget(self.enhance_cb)
-        layout.addWidget(QtWidgets.QLabel("Output"))
-        layout.addWidget(self.output_path)
-        layout.addWidget(self.start_button)
-        layout.addWidget(self.progress)
-        layout.addWidget(self.status_label)
-        layout.addWidget(self.error_label)
-        layout.addWidget(self.result_label)
 
         self.load_categories_button.clicked.connect(self._on_load_categories)
         self.load_ftrace_button.clicked.connect(self._on_load_ftrace)
-        self.start_button.clicked.connect(self._on_start_capture)
         self.preset_min.clicked.connect(lambda: self._apply_preset("min"))
         self.preset_graphics.clicked.connect(lambda: self._apply_preset("graphics"))
         self.preset_system.clicked.connect(lambda: self._apply_preset("system"))
@@ -154,6 +248,31 @@ class SystracePanel(QtWidgets.QWidget):
         self.preset_clear.clicked.connect(lambda: self._apply_preset("clear"))
 
         self.update_device(self.device_serial)
+
+    def _open_settings(self) -> None:
+        self.settings_dialog.exec()
+        self._refresh_settings_summary()
+
+    def _compact_path(self, path: str, max_len: int = 48) -> str:
+        path = (path or "").strip()
+        if not path:
+            return "-"
+        if len(path) <= max_len:
+            return path
+        return "..." + path[-(max_len - 3) :]
+
+    def _format_target_label(self) -> str:
+        if self.custom_target.isEnabled():
+            return self.custom_target.text().strip() or "Custom"
+        return self.target_combo.currentText()
+
+    def _refresh_settings_summary(self) -> None:
+        duration = f"{self._get_duration()}s"
+        target = self._format_target_label()
+        output_dir = self._compact_path(self.output_path.output_dir())
+        self.settings_summary.setText(
+            f"Duration: {duration} | Target: {target} | Output: {output_dir}"
+        )
 
     def _toggle_custom_duration(self, text: str) -> None:
         self.custom_duration.setEnabled(text == "Custom")
@@ -198,66 +317,142 @@ class SystracePanel(QtWidgets.QWidget):
         can_load = bool(serial)
         self.load_categories_button.setEnabled(can_load)
         self.load_ftrace_button.setEnabled(can_load)
-        self.start_button.setEnabled(can_load and bool(self.presenter.categories))
+
+        self._notify_readiness()
+
         if not serial:
             self.atrace_list.clear()
             self.ftrace_tree.clear()
-            self.status_label.setText("Please select a device.")
+            self._auto_loaded_serial = None
+            self.status_message.emit("Please select a device.")
         else:
-            self.status_label.setText(f"Selected device: {serial}.")
-            # Auto-load categories and ftrace events when device is selected
-            self._on_load_categories()
-            # self._on_load_ftrace() # Ftrace might be slow, let's optional or auto-load too?
-            # Let's auto-load categories as they are required for basic systrace.
+            self.status_message.emit(f"Selected device: {serial}.")
+            should_auto_load = (
+                serial != self._auto_loaded_serial
+                or self.atrace_list.count() == 0
+            )
+            if should_auto_load:
+                self._auto_loaded_serial = serial
+                self._on_load_categories()
 
     def update_view(self) -> None:
-        busy = self.presenter.is_loading_categories or self.presenter.is_loading_ftrace or self.presenter.is_capturing
-        self.progress.setVisible(busy)
+        busy = (
+            self.presenter.is_loading_categories
+            or self.presenter.is_loading_ftrace
+            or self.presenter.is_capturing
+        )
+        self.busy_changed.emit(busy)
 
-        # FIX: Remove count() == 0 check - always sync UI when presenter has data
-        # The list is cleared in _on_load_categories before loading, so we just need
-        # to populate when data arrives
         if self.presenter.categories and not self.presenter.is_loading_categories:
-            # Only populate if list is empty (was cleared before load)
             if self.atrace_list.count() == 0:
-                defaults = {"sched", "freq", "idle", "am", "wm", "view", "gfx", "input", "dalvik", "binder_driver", "binder_lock"}
                 for cat in self.presenter.categories:
                     item = QtWidgets.QListWidgetItem(cat)
                     item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
-                    item.setCheckState(QtCore.Qt.Checked if cat in defaults else QtCore.Qt.Unchecked)
+                    item.setCheckState(
+                        QtCore.Qt.Checked
+                        if cat in DEFAULT_ATRACE_SET
+                        else QtCore.Qt.Unchecked
+                    )
                     self.atrace_list.addItem(item)
 
         if self.presenter.ftrace_events:
-            self._populate_ftrace_tree(self.presenter.ftrace_events, self.ftrace_filter.text())
+            self._populate_ftrace_tree(
+                self.presenter.ftrace_events, self.ftrace_filter.text()
+            )
 
-        self.error_label.setText(
-            f"Error: {self.presenter.error_message}" if self.presenter.error_message else ""
-        )
-        self.result_label.setText(
-            f"Capture saved to: {self.presenter.last_output_path}" if self.presenter.last_output_path else ""
-        )
+        if self.presenter.error_message:
+            self.error_message.emit(self.presenter.error_message)
+
+        if self.presenter.last_output_path:
+            self.status_message.emit(
+                f"Capture saved to: {self.presenter.last_output_path}"
+            )
 
         if self.presenter.is_loading_categories:
-            self.status_label.setText("Loading categories...")
+            self.status_message.emit("Loading categories...")
         elif self.presenter.is_loading_ftrace:
-            self.status_label.setText("Loading ftrace events...")
+            self.status_message.emit("Loading ftrace events...")
         elif self.presenter.is_capturing:
-            self.status_label.setText("Capturing trace... Please wait.")
+            self.status_message.emit("Capturing trace... Please wait.")
         else:
-            self.status_label.setText("Ready.")
+            self.status_message.emit("Ready.")
 
-        can_run = bool(self.device_serial) and bool(self.presenter.categories) and not busy
-        self.start_button.setEnabled(can_run)
         self.load_categories_button.setEnabled(bool(self.device_serial) and not busy)
         self.load_ftrace_button.setEnabled(bool(self.device_serial) and not busy)
+        self._notify_readiness()
+
+    def _notify_readiness(self):
+        busy = (
+            self.presenter.is_loading_categories
+            or self.presenter.is_loading_ftrace
+            or self.presenter.is_capturing
+        )
+        can_run = bool(self.device_serial) and not busy
+        self.readiness_changed.emit(can_run)
+
+    def is_ready(self) -> bool:
+        busy = (
+            self.presenter.is_loading_categories
+            or self.presenter.is_loading_ftrace
+            or self.presenter.is_capturing
+        )
+        return bool(self.device_serial) and not busy
 
     def _apply_preset(self, preset: str) -> None:
         if self.atrace_list.count() == 0:
             return
         presets = {
-            "min": {"sched", "freq", "idle", "am", "wm", "view", "gfx", "input", "dalvik", "binder_driver", "binder_lock"},
-            "graphics": {"sched", "freq", "idle", "am", "wm", "view", "gfx", "input", "dalvik", "binder_driver", "binder_lock", "webview", "res", "rs"},
-            "system": {"sched", "freq", "idle", "am", "wm", "view", "gfx", "input", "dalvik", "binder_driver", "binder_lock", "hal", "ss", "pm", "power", "thermal", "disk", "sync", "memory", "memreclaim"},
+            "min": {
+                "sched",
+                "freq",
+                "idle",
+                "am",
+                "wm",
+                "view",
+                "gfx",
+                "input",
+                "dalvik",
+                "binder_driver",
+                "binder_lock",
+            },
+            "graphics": {
+                "sched",
+                "freq",
+                "idle",
+                "am",
+                "wm",
+                "view",
+                "gfx",
+                "input",
+                "dalvik",
+                "binder_driver",
+                "binder_lock",
+                "webview",
+                "res",
+                "rs",
+            },
+            "system": {
+                "sched",
+                "freq",
+                "idle",
+                "am",
+                "wm",
+                "view",
+                "gfx",
+                "input",
+                "dalvik",
+                "binder_driver",
+                "binder_lock",
+                "hal",
+                "ss",
+                "pm",
+                "power",
+                "thermal",
+                "disk",
+                "sync",
+                "memory",
+                "memreclaim",
+            },
         }
         for i in range(self.atrace_list.count()):
             item = self.atrace_list.item(i)
@@ -266,16 +461,20 @@ class SystracePanel(QtWidgets.QWidget):
             elif preset == "clear":
                 item.setCheckState(QtCore.Qt.Unchecked)
             else:
-                item.setCheckState(QtCore.Qt.Checked if item.text() in presets[preset] else QtCore.Qt.Unchecked)
+                item.setCheckState(
+                    QtCore.Qt.Checked
+                    if item.text() in presets[preset]
+                    else QtCore.Qt.Unchecked
+                )
 
     def _on_load_categories(self) -> None:
-        if not self.device_serial:
+        if not self.device_serial or self.presenter.is_loading_categories:
             return
         self.atrace_list.clear()
         run_in_thread(self.presenter.load_categories, self.device_serial)
 
     def _on_load_ftrace(self) -> None:
-        if not self.device_serial:
+        if not self.device_serial or self.presenter.is_loading_ftrace:
             return
         self.ftrace_tree.clear()
         run_in_thread(self.presenter.load_ftrace_events, self.device_serial)
@@ -298,8 +497,9 @@ class SystracePanel(QtWidgets.QWidget):
             return "com.android.settings"
         return None
 
-    def _on_start_capture(self) -> None:
+    def start_capture(self) -> None:
         if not self.device_serial:
+            self.error_message.emit("No device selected.")
             return
         selected = []
         for i in range(self.atrace_list.count()):
@@ -307,13 +507,30 @@ class SystracePanel(QtWidgets.QWidget):
             if item.checkState() == QtCore.Qt.Checked:
                 selected.append(item.text())
 
+        if not selected:
+            if self.atrace_list.count() == 0:
+                selected = list(DEFAULT_ATRACE_CATEGORIES)
+                self.status_message.emit(
+                    "Using default categories (device list unavailable)."
+                )
+            else:
+                self.error_message.emit("No categories selected.")
+                return
+
+        buffer_size = self.settings_dialog.buffer_spin.value()
+        create_subfolder = self.settings_dialog.subfolder_cb.isChecked()
+
         run_in_thread(
             self.presenter.start_capture,
             self.device_serial,
             selected,
             self._get_duration(),
-            int(self.buffer_spin.value()),
+            buffer_size,
             self._get_target_app(),
             self.output_path.output_dir(),
-            self.output_path.create_subfolder(),
+            create_subfolder,
         )
+
+    def set_output_dir(self, output_dir: str) -> None:
+        self.output_path.set_output_dir(output_dir)
+        self._refresh_settings_summary()

@@ -1,9 +1,13 @@
 import os
 import time
-from easy_tracer.framework.traceview_adapter import TraceviewAdapter
+from easy_tracer.framework import traceview_adapter
 
 class TraceviewService:
-    def __init__(self, adapter: TraceviewAdapter, output_dir: str = "output"):
+    def __init__(
+        self,
+        adapter: traceview_adapter.TraceviewAdapter,
+        output_dir: str = "output",
+    ):
         self.adapter = adapter
         self.output_dir = output_dir
 

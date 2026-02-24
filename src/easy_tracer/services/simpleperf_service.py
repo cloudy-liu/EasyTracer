@@ -1,9 +1,13 @@
 import os
 import time
-from easy_tracer.framework.simpleperf_adapter import SimpleperfAdapter
+from easy_tracer.framework import simpleperf_adapter
 
 class SimpleperfService:
-    def __init__(self, simpleperf_adapter: SimpleperfAdapter, output_dir: str = "output"):
+    def __init__(
+        self,
+        simpleperf_adapter: simpleperf_adapter.SimpleperfAdapter,
+        output_dir: str = "output",
+    ):
         self.simpleperf_adapter = simpleperf_adapter
         self.output_dir = output_dir
 

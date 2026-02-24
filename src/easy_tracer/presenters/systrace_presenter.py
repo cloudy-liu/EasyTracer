@@ -1,6 +1,7 @@
 from typing import List, Optional, Callable
 from easy_tracer.services.capture_service import CaptureService
 
+
 class SystracePresenter:
     def __init__(self, capture_service: CaptureService):
         self.capture_service = capture_service
@@ -33,7 +34,9 @@ class SystracePresenter:
         self._notify_view()
 
         try:
-            self.categories = self.capture_service.get_available_categories(device_serial)
+            self.categories = self.capture_service.get_available_categories(
+                device_serial
+            )
         except Exception as e:
             self.error_message = f"Failed to load categories: {str(e)}"
         finally:

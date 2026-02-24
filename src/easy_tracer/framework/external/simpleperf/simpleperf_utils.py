@@ -942,8 +942,145 @@ class ReadElf(object):
 
     def __init__(self, ndk_path: Optional[str]):
         self.readelf_path = ToolFinder.find_tool_path('llvm-readelf', ndk_path)
+        # report_html.py historically required llvm-readelf from Android NDK.
+        # In practice, many users don't have NDK installed. We can still extract
+        # the minimal info needed by report generation (arch/build-id/sections)
+        # via a tiny internal ELF parser as a fallback.
         if not self.readelf_path:
-            log_exit("Can't find llvm-readelf. " + NDK_ERROR_MESSAGE)
+            logging.warning("Can't find llvm-readelf. Falling back to internal ELF parser.")
+
+    @staticmethod
+    def _unpack_from(data: bytes, offset: int, size: int, little_endian: bool) -> int:
+        chunk = data[offset:offset + size]
+        if len(chunk) != size:
+            raise ValueError("short read")
+        return int.from_bytes(chunk, byteorder="little" if little_endian else "big", signed=False)
+
+    @classmethod
+    def _parse_elf_header(cls, data: bytes) -> tuple[bool, bool, int, int, int, int, int]:
+        """Return (is_64, little_endian, e_machine, e_shoff, e_shentsize, e_shnum, e_shstrndx)."""
+        if len(data) < 0x40 or data[0:4] != b"\x7fELF":
+            raise ValueError("not ELF")
+        ei_class = data[4]
+        ei_data = data[5]
+        is_64 = (ei_class == 2)
+        little = (ei_data == 1)
+
+        # e_machine is at offset 18 for both 32/64-bit.
+        e_machine = cls._unpack_from(data, 18, 2, little)
+
+        if is_64:
+            e_shoff = cls._unpack_from(data, 40, 8, little)
+            e_shentsize = cls._unpack_from(data, 58, 2, little)
+            e_shnum = cls._unpack_from(data, 60, 2, little)
+            e_shstrndx = cls._unpack_from(data, 62, 2, little)
+        else:
+            e_shoff = cls._unpack_from(data, 32, 4, little)
+            e_shentsize = cls._unpack_from(data, 46, 2, little)
+            e_shnum = cls._unpack_from(data, 48, 2, little)
+            e_shstrndx = cls._unpack_from(data, 50, 2, little)
+        return is_64, little, e_machine, e_shoff, e_shentsize, e_shnum, e_shstrndx
+
+    @classmethod
+    def _read_section_headers(
+        cls, data: bytes
+    ) -> tuple[bool, bool, list[dict[str, int]], bytes]:
+        """Return (is_64, little_endian, sections, shstrtab_bytes)."""
+        is_64, little, _machine, e_shoff, e_shentsize, e_shnum, e_shstrndx = cls._parse_elf_header(data)
+        if e_shoff == 0 or e_shentsize == 0 or e_shnum == 0:
+            return is_64, little, [], b""
+
+        sections: list[dict[str, int]] = []
+        for i in range(e_shnum):
+            off = e_shoff + i * e_shentsize
+            if is_64:
+                sh_name = cls._unpack_from(data, off + 0, 4, little)
+                sh_type = cls._unpack_from(data, off + 4, 4, little)
+                sh_offset = cls._unpack_from(data, off + 24, 8, little)
+                sh_size = cls._unpack_from(data, off + 32, 8, little)
+            else:
+                sh_name = cls._unpack_from(data, off + 0, 4, little)
+                sh_type = cls._unpack_from(data, off + 4, 4, little)
+                sh_offset = cls._unpack_from(data, off + 16, 4, little)
+                sh_size = cls._unpack_from(data, off + 20, 4, little)
+            sections.append(
+                {
+                    "sh_name": sh_name,
+                    "sh_type": sh_type,
+                    "sh_offset": sh_offset,
+                    "sh_size": sh_size,
+                }
+            )
+
+        shstrtab = b""
+        if 0 <= e_shstrndx < len(sections):
+            s = sections[e_shstrndx]
+            start = s["sh_offset"]
+            end = start + s["sh_size"]
+            shstrtab = data[start:end]
+        return is_64, little, sections, shstrtab
+
+    @staticmethod
+    def _get_cstr(buf: bytes, off: int) -> str:
+        if off < 0 or off >= len(buf):
+            return ""
+        end = buf.find(b"\x00", off)
+        if end == -1:
+            end = len(buf)
+        return buf[off:end].decode("utf-8", errors="replace")
+
+    @classmethod
+    def _iter_elf_notes(cls, note_bytes: bytes, little_endian: bool):
+        off = 0
+        align = 4
+        while off + 12 <= len(note_bytes):
+            namesz = cls._unpack_from(note_bytes, off + 0, 4, little_endian)
+            descsz = cls._unpack_from(note_bytes, off + 4, 4, little_endian)
+            n_type = cls._unpack_from(note_bytes, off + 8, 4, little_endian)
+            off += 12
+
+            name = note_bytes[off:off + namesz]
+            off += (namesz + (align - 1)) & ~(align - 1)
+
+            desc = note_bytes[off:off + descsz]
+            off += (descsz + (align - 1)) & ~(align - 1)
+
+            # Strip trailing NULs in name.
+            name_s = name.split(b"\x00", 1)[0].decode("utf-8", errors="replace")
+            yield name_s, n_type, desc
+
+    def _get_build_id_internal(self, elf_file_path: Union[Path, str]) -> str:
+        try:
+            data = Path(elf_file_path).read_bytes()
+        except Exception:
+            return ""
+        if not data.startswith(b"\x7fELF"):
+            return ""
+        try:
+            is_64, little, sections, shstrtab = self._read_section_headers(data)
+        except Exception:
+            return ""
+
+        # Prefer .note.gnu.build-id if present; otherwise scan SHT_NOTE sections.
+        note_sections: list[dict[str, int]] = []
+        for s in sections:
+            name = self._get_cstr(shstrtab, s["sh_name"])
+            if name == ".note.gnu.build-id":
+                note_sections = [s]
+                break
+            # SHT_NOTE == 7
+            if s["sh_type"] == 7:
+                note_sections.append(s)
+
+        for s in note_sections:
+            start = s["sh_offset"]
+            end = start + s["sh_size"]
+            note_bytes = data[start:end]
+            for name, n_type, desc in self._iter_elf_notes(note_bytes, little):
+                # NT_GNU_BUILD_ID == 3, name == GNU
+                if name == "GNU" and n_type == 3 and desc:
+                    return desc.hex()
+        return ""
 
     @staticmethod
     def is_elf_file(path: Union[Path, str]) -> bool:
@@ -954,6 +1091,24 @@ class ReadElf(object):
 
     def get_arch(self, elf_file_path: Union[Path, str]) -> str:
         """ Get arch of an elf file. """
+        if not self.readelf_path:
+            try:
+                data = Path(elf_file_path).read_bytes()
+                _is_64, _little, e_machine, *_rest = self._parse_elf_header(data)
+                # e_machine values per ELF spec.
+                if e_machine == 183:
+                    return "arm64"
+                if e_machine == 40:
+                    return "arm"
+                if e_machine == 62:
+                    return "x86_64"
+                if e_machine == 3:
+                    return "x86"
+                if e_machine == 243:
+                    return "riscv64"
+            except Exception:
+                return "unknown"
+
         if self.is_elf_file(elf_file_path):
             try:
                 output = subprocess.check_output([self.readelf_path, '-h', str(elf_file_path)])
@@ -974,6 +1129,12 @@ class ReadElf(object):
 
     def get_build_id(self, elf_file_path: Union[Path, str], with_padding=True) -> str:
         """ Get build id of an elf file. """
+        if not self.readelf_path:
+            build_id = self._get_build_id_internal(elf_file_path)
+            if build_id and with_padding:
+                build_id = self.pad_build_id(build_id)
+            return build_id
+
         if self.is_elf_file(elf_file_path):
             try:
                 output = subprocess.check_output([self.readelf_path, '-n', str(elf_file_path)])
@@ -1010,6 +1171,18 @@ class ReadElf(object):
     def get_sections(self, elf_file_path: Union[Path, str]) -> List[str]:
         """ Get sections of an elf file. """
         section_names: List[str] = []
+        if not self.readelf_path:
+            try:
+                data = Path(elf_file_path).read_bytes()
+                _is_64, _little, sections, shstrtab = self._read_section_headers(data)
+                for s in sections:
+                    name = self._get_cstr(shstrtab, s["sh_name"])
+                    if name:
+                        section_names.append(name)
+            except Exception:
+                pass
+            return section_names
+
         if self.is_elf_file(elf_file_path):
             try:
                 output = subprocess.check_output([self.readelf_path, '-SW', str(elf_file_path)])

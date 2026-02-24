@@ -5,6 +5,17 @@
 import argparse
 import subprocess
 import sys
+import logging
+
+# Configure logger
+logger = logging.getLogger(__name__)
+
+# Default adb executable used by vendored systrace internals.
+# The host adapter can override this at runtime.
+ADB_EXECUTABLE = 'adb'
+
+# Cache SDK lookup per-device to avoid redundant adb getprop calls.
+_SDK_VERSION_CACHE = {}
 
 
 class OptionParserIgnoreErrors(argparse.ArgumentParser):
@@ -30,9 +41,14 @@ def add_adb_serial(adb_command, device_serial):
 
 
 def construct_adb_shell_command(shell_args, device_serial):
-    adb_command = ['adb', 'shell', ' '.join(shell_args)]
+    adb_command = [ADB_EXECUTABLE, 'shell', ' '.join(shell_args)]
     add_adb_serial(adb_command, device_serial)
     return adb_command
+
+
+def set_adb_executable(adb_path):
+    global ADB_EXECUTABLE
+    ADB_EXECUTABLE = adb_path or 'adb'
 
 
 def run_adb_shell(shell_args, device_serial):
@@ -48,11 +64,23 @@ def run_adb_shell(shell_args, device_serial):
     """
     adb_command = construct_adb_shell_command(shell_args, device_serial)
 
+    # Keep systrace-internal adb commands out of normal INFO logs.
+    logger.debug("Systrace Internal Exec: %s", " ".join(adb_command))
+
     adb_output = []
     adb_return_code = 0
     try:
+        kwargs = {}
+        if sys.platform == 'win32':
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            kwargs['startupinfo'] = si
+            kwargs['creationflags'] = getattr(
+                subprocess, 'CREATE_NO_WINDOW', 0x0800)
+
         adb_output = subprocess.check_output(adb_command, stderr=subprocess.STDOUT,
-                                             shell=False, universal_newlines=True)
+                                             shell=False, universal_newlines=True,
+                                             **kwargs)
     except OSError as error:
         # This usually means that the adb executable was not found in the path.
         print('\nThe command "%s" failed with the following error:'
@@ -69,23 +97,25 @@ def run_adb_shell(shell_args, device_serial):
     return (adb_output, adb_return_code)
 
 
-def get_device_sdk_version():
+def get_device_sdk_version(device_serial=None):
     """Uses adb to attempt to determine the SDK version of a running device."""
+    cache_key = device_serial if device_serial else '__default__'
+    if cache_key in _SDK_VERSION_CACHE:
+        return _SDK_VERSION_CACHE[cache_key]
 
     getprop_args = ['getprop', 'ro.build.version.sdk']
 
-    # get_device_sdk_version() is called before we even parse our command-line
-    # args.  Therefore, parse just the device serial number part of the
-    # command-line so we can send the adb command to the correct device.
-    parser = OptionParserIgnoreErrors()
-    parser.add_argument('-e', '--serial', dest='device_serial', type=str)
-    options, _ = parser.parse_known_args()
+    if device_serial is None:
+        # Legacy fallback: parse serial from process argv.
+        parser = OptionParserIgnoreErrors()
+        parser.add_argument('-e', '--serial', dest='device_serial', type=str)
+        options, _ = parser.parse_known_args()
+        device_serial = options.device_serial
 
     success = False
     version = -1
 
-    adb_output, adb_return_code = run_adb_shell(getprop_args,
-                                                options.device_serial)
+    adb_output, adb_return_code = run_adb_shell(getprop_args, device_serial)
 
     if adb_return_code == 0:
         # ADB may print output other than the version number (e.g. it could
@@ -110,4 +140,5 @@ def get_device_sdk_version():
         print(adb_output, file=sys.stderr)
         sys.exit(1)
 
+    _SDK_VERSION_CACHE[cache_key] = version
     return version

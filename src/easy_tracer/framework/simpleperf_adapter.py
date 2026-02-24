@@ -1,11 +1,13 @@
+import concurrent.futures  # Ensures stdlib module is bundled for dynamic vendor script imports (PyInstaller).
+import webbrowser  # Ensures stdlib module is bundled for dynamic vendor script imports (PyInstaller).
 import os
 import sys
 import io
 import contextlib
 import importlib.util
-import subprocess
 from typing import Optional
-from easy_tracer.framework.subprocess_utils import subprocess_hidden_window_kwargs
+
+from easy_tracer.framework import subprocess_utils
 
 
 class SimpleperfAdapter:
@@ -14,7 +16,6 @@ class SimpleperfAdapter:
         # Calculate path to simpleperf scripts
         current_dir = os.path.dirname(os.path.abspath(__file__))
         self.simpleperf_dir = os.path.join(current_dir, "external", "simpleperf")
-        self.app_profiler_path = os.path.join(self.simpleperf_dir, "app_profiler.py")
         self.report_html_path = os.path.join(self.simpleperf_dir, "report_html.py")
 
     def _import_and_run_script(self, script_path: str, module_name: str, args: list) -> str:
@@ -59,19 +60,32 @@ class SimpleperfAdapter:
         frequency: int = 4000,
         record_options: Optional[str] = None,
     ) -> str:
-        """Runs app_profiler.py to profile an Android app."""
-        if not os.path.exists(self.app_profiler_path):
-            raise FileNotFoundError(
-                f"app_profiler.py not found at {self.app_profiler_path}"
-            )
+        """Profiles an Android app using simpleperf.
+
+        Preferred path is to use the official `app_profiler.py` orchestration
+        script when present. However, EasyTracer's vendored simpleperf bundle may
+        only include the report generator pieces; in that case we fall back to
+        running `adb shell simpleperf record --app <pkg>` directly.
+        """
+        app_profiler_path = os.path.join(self.simpleperf_dir, "app_profiler.py")
 
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
         perf_data_path = os.path.join(output_dir, "perf.data")
 
-        # Change CWD to output_dir so relative paths work if script uses them
-        # app_profiler writes to CWD usually or uses -o
+        # If app_profiler.py isn't available, fall back to direct record.
+        if not os.path.exists(app_profiler_path):
+            self.run_simpleperf_record(
+                device_serial=device_serial,
+                output_path=perf_data_path,
+                duration_seconds=duration_seconds,
+                frequency=frequency,
+                process_name=app_name,
+            )
+            return perf_data_path
+
+        # Change CWD to output_dir so relative paths work if the script uses them.
         original_cwd = os.getcwd()
         os.chdir(output_dir)
 
@@ -86,7 +100,7 @@ class SimpleperfAdapter:
             if record_options:
                 args[-1] = record_options # Replace the -r default
 
-            self._import_and_run_script(self.app_profiler_path, "app_profiler", args)
+            self._import_and_run_script(app_profiler_path, "app_profiler", args)
             return perf_data_path
         finally:
             os.chdir(original_cwd)
@@ -133,31 +147,15 @@ class SimpleperfAdapter:
         simpleperf_cmd += " -o /data/local/tmp/perf.data"
         adb_cmd = [self.adb_path, "-s", device_serial, "shell", simpleperf_cmd]
 
-        try:
-            subprocess.run(
-                adb_cmd,
-                capture_output=True,
-                text=True,
-                check=True,
-                **subprocess_hidden_window_kwargs(),
-            )
-            # Pull the file
-            pull_cmd = [
-                self.adb_path,
-                "-s",
-                device_serial,
-                "pull",
-                "/data/local/tmp/perf.data",
-                output_path,
-            ]
-            subprocess.run(
-                pull_cmd,
-                capture_output=True,
-                text=True,
-                check=True,
-                **subprocess_hidden_window_kwargs(),
-            )
-
-            return output_path
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"Simpleperf record failed: {e.stderr}") from e
+        subprocess_utils.check_output(adb_cmd)
+        # Pull the file
+        pull_cmd = [
+            self.adb_path,
+            "-s",
+            device_serial,
+            "pull",
+            "/data/local/tmp/perf.data",
+            output_path,
+        ]
+        subprocess_utils.check_output(pull_cmd)
+        return output_path

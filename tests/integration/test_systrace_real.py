@@ -31,13 +31,17 @@ class TestSystraceRealDevice:
         print(f"[Systrace] Capture complete. File size: {file_size} bytes")
         assert file_size > 100_000, f"Trace file too small: {file_size} bytes"
 
-        # 3. 验证是有效的 HTML 文件
+        # 3. Validate it is a usable HTML file AND contains a real trace payload.
+        #
+        # NOTE: The systrace trace viewer HTML is very large. Even an empty/corrupted
+        # capture can still produce a big file. So we must validate the embedded
+        # trace text header ('# tracer') exists.
         with open(output_file, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read(10_000)  # 只需检查文件头
+            content = f.read()
 
-        assert "<html" in content.lower() or "<!DOCTYPE" in content, "Not valid HTML file"
-        # 文件大小 > 1MB 已经证明包含完整的 trace 数据
-        # (空的 systrace HTML 只有几十 KB)
+        assert '<html' in content.lower() or '<!doctype' in content.lower(), 'Not valid HTML file'
+        assert 'class="trace-data"' in content or "class='trace-data'" in content, 'Missing trace-data script block'
+        assert '# tracer' in content, "Trace payload missing or corrupted (expected '# tracer' header)"
 
     
     def test_get_categories_from_device(self, systrace_adapter, device_serial):

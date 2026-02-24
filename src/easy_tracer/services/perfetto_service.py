@@ -1,10 +1,14 @@
 import os
 import time
 from typing import List
-from easy_tracer.framework.perfetto_adapter import PerfettoAdapter
+from easy_tracer.framework import perfetto_adapter
 
 class PerfettoService:
-    def __init__(self, perfetto_adapter: PerfettoAdapter, output_dir: str = "output"):
+    def __init__(
+        self,
+        perfetto_adapter: perfetto_adapter.PerfettoAdapter,
+        output_dir: str = "output",
+    ):
         self.perfetto_adapter = perfetto_adapter
         self.output_dir = output_dir
 

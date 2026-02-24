@@ -1,7 +1,7 @@
-import subprocess
 import time
 from typing import List
-from easy_tracer.framework.subprocess_utils import subprocess_hidden_window_kwargs
+
+from easy_tracer.framework import subprocess_utils
 
 
 class PerfettoAdapter:
@@ -61,50 +61,32 @@ class PerfettoAdapter:
         # Append categories
         cmd.extend(categories)
 
+        # 1. Start Capture
+        subprocess_utils.check_output(cmd)
+
+        # 2. Pull the file
+        pull_cmd = [
+            self.adb_path,
+            "-s",
+            device_serial,
+            "pull",
+            device_output_path,
+            output_path,
+        ]
+        subprocess_utils.check_output(pull_cmd)
+
+        # 3. Cleanup on device (best-effort)
+        cleanup_cmd = [
+            self.adb_path,
+            "-s",
+            device_serial,
+            "shell",
+            "rm",
+            device_output_path,
+        ]
         try:
-            # 1. Start Capture
-            subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True,
-                **subprocess_hidden_window_kwargs(),
-            )
-            # 2. Pull the file
-            pull_cmd = [
-                self.adb_path,
-                "-s",
-                device_serial,
-                "pull",
-                device_output_path,
-                output_path,
-            ]
-            subprocess.run(
-                pull_cmd,
-                capture_output=True,
-                text=True,
-                check=True,
-                **subprocess_hidden_window_kwargs(),
-            )
-            # 3. Cleanup on device
-            cleanup_cmd = [
-                self.adb_path,
-                "-s",
-                device_serial,
-                "shell",
-                "rm",
-                device_output_path,
-            ]
-            subprocess.run(
-                cleanup_cmd,
-                capture_output=True,
-                check=False,
-                **subprocess_hidden_window_kwargs(),
-            )
+            subprocess_utils.check_output(cleanup_cmd)
+        except RuntimeError:
+            pass
 
-            return output_path
-
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(
-                f"Perfetto capture failed: {e.stderr if e.stderr else e.stdout}"
-            ) from e
+        return output_path

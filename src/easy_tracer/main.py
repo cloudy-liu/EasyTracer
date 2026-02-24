@@ -3,34 +3,40 @@ from __future__ import annotations
 import atexit
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 
-# Ensure the src directory is in the python path (must happen BEFORE importing easy_tracer.*)
-current_dir = Path(__file__).resolve().parent
-src_dir = current_dir.parent.parent
-if str(src_dir) not in sys.path:
-    sys.path.insert(0, str(src_dir))
+# Dev convenience: allow running the app directly from the repo without installing.
+# In frozen (PyInstaller) builds, sys.path is already configured and we should not
+# mutate it (extra path entries slow down imports and can affect module discovery).
+if not getattr(sys, "frozen", False):
+    current_dir = Path(__file__).resolve().parent
+    src_dir = current_dir.parent  # .../src
+    if src_dir.name == "src" and (src_dir / "easy_tracer").exists():
+        if str(src_dir) not in sys.path:
+            sys.path.insert(0, str(src_dir))
 
 from PySide6 import QtWidgets
-from easy_tracer.framework.adb_adapter import AdbAdapter
-from easy_tracer.framework.systrace_adapter import SystraceAdapter
-from easy_tracer.framework.simpleperf_adapter import SimpleperfAdapter
-from easy_tracer.framework.perfetto_adapter import PerfettoAdapter
-from easy_tracer.framework.traceview_adapter import TraceviewAdapter
-from easy_tracer.services.device_service import DeviceService
-from easy_tracer.services.capture_service import CaptureService
-from easy_tracer.services.simpleperf_service import SimpleperfService
-from easy_tracer.services.perfetto_service import PerfettoService
-from easy_tracer.services.traceview_service import TraceviewService
-from easy_tracer.services.combo_service import ComboService
-from easy_tracer.services.config_service import ConfigService
-from easy_tracer.presenters.main_presenter import MainPresenter
-from easy_tracer.presenters.systrace_presenter import SystracePresenter
-from easy_tracer.presenters.simpleperf_presenter import SimpleperfPresenter
-from easy_tracer.presenters.perfetto_presenter import PerfettoPresenter
-from easy_tracer.presenters.traceview_presenter import TraceviewPresenter
-from easy_tracer.presenters.combo_presenter import ComboPresenter
-from easy_tracer.ui.main_window import MainWindow
+from easy_tracer.framework import adb_helper as adb_helper_module
+from easy_tracer.framework import systrace_adapter as systrace_adapter_module
+from easy_tracer.framework import simpleperf_adapter as simpleperf_adapter_module
+from easy_tracer.framework import perfetto_adapter as perfetto_adapter_module
+from easy_tracer.framework import traceview_adapter as traceview_adapter_module
+from easy_tracer.framework import subprocess_utils
+from easy_tracer.services import device_service as device_service_module
+from easy_tracer.services import capture_service as capture_service_module
+from easy_tracer.services import simpleperf_service as simpleperf_service_module
+from easy_tracer.services import perfetto_service as perfetto_service_module
+from easy_tracer.services import traceview_service as traceview_service_module
+from easy_tracer.services import combo_service as combo_service_module
+from easy_tracer.services import config_service as config_service_module
+from easy_tracer.presenters import main_presenter as main_presenter_module
+from easy_tracer.presenters import systrace_presenter as systrace_presenter_module
+from easy_tracer.presenters import simpleperf_presenter as simpleperf_presenter_module
+from easy_tracer.presenters import perfetto_presenter as perfetto_presenter_module
+from easy_tracer.presenters import traceview_presenter as traceview_presenter_module
+from easy_tracer.presenters import combo_presenter as combo_presenter_module
+from easy_tracer.ui import main_window as main_window_module
 
 
 def _kill_adb_server(adb_path: str) -> None:
@@ -42,12 +48,7 @@ def _kill_adb_server(adb_path: str) -> None:
     preventing deletion. We must explicitly kill it on exit.
     """
     try:
-        subprocess.run(
-            [adb_path, "kill-server"],
-            capture_output=True,
-            timeout=5,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
+        subprocess_utils.check_output([adb_path, "kill-server"], timeout=5)
     except Exception:
         pass  # Best effort cleanup
 
@@ -59,6 +60,20 @@ def _get_app_root() -> Path:
 
 
 def run() -> None:
+    # Self-test mode (headless) - useful for packaged EXE closed-loop validation.
+    if "--selftest" in sys.argv:
+        from easy_tracer import selftest as selftest_module
+
+        argv = [a for a in sys.argv[1:] if a != "--selftest"]
+        sys.exit(selftest_module.run_selftest(argv))
+
+    # Warmup mode: used by the release script to pay the "first launch" cost
+    # (Windows Defender / DLL cold-cache) during packaging instead of the first
+    # interactive run.
+    warmup = "--warmup" in sys.argv
+    if warmup:
+        sys.argv = [a for a in sys.argv if a != "--warmup"]
+
     # =========================================================================
     # FAST STARTUP: Create QApplication and show window FIRST
     # Heavy service initialization is deferred to avoid blocking UI display
@@ -66,29 +81,34 @@ def run() -> None:
     app = QtWidgets.QApplication(sys.argv)
 
     app_root = _get_app_root()
-    config_service = ConfigService(
+    bundled_adb = app_root / "bin" / "adb" / ("adb.exe" if sys.platform == "win32" else "adb")
+    # Prefer system adb (PATH) first; fallback to bundled adb if missing.
+    default_adb_path = "adb" if shutil.which("adb") else (str(bundled_adb) if bundled_adb.exists() else "adb")
+    config_service = config_service_module.ConfigService(
         config_path=app_root / "config.json",
-        default_adb_path="adb",
+        default_adb_path=default_adb_path,
         default_output_dir=app_root / "output",
     )
 
-    # Register cleanup handler to kill ADB server on exit
-    atexit.register(_kill_adb_server, config_service.adb_path)
+    # Register cleanup handler to kill ADB server on exit (avoid file locks).
+    # Skip in warmup runs to keep them side-effect free and fast.
+    if not warmup:
+        atexit.register(lambda: _kill_adb_server(config_service.adb_path))
 
     # Lightweight adapters - these just store paths, no I/O
-    adb_adapter = AdbAdapter(adb_path=config_service.adb_path)
-    systrace_adapter = SystraceAdapter(adb_path=config_service.adb_path)
-    simpleperf_adapter = SimpleperfAdapter(adb_path=config_service.adb_path)
-    perfetto_adapter = PerfettoAdapter(adb_path=config_service.adb_path)
-    traceview_adapter = TraceviewAdapter(adb_path=config_service.adb_path)
+    adb_adapter = adb_helper_module.AdbHelper(adb_path=config_service.adb_path)
+    systrace_adapter = systrace_adapter_module.SystraceAdapter(adb_path=config_service.adb_path)
+    simpleperf_adapter = simpleperf_adapter_module.SimpleperfAdapter(adb_path=config_service.adb_path)
+    perfetto_adapter = perfetto_adapter_module.PerfettoAdapter(adb_path=config_service.adb_path)
+    traceview_adapter = traceview_adapter_module.TraceviewAdapter(adb_path=config_service.adb_path)
 
     # Services - lightweight wrappers
-    device_service = DeviceService(adb_adapter)
-    capture_service = CaptureService(systrace_adapter, output_dir=config_service.output_dir)
-    simpleperf_service = SimpleperfService(simpleperf_adapter, output_dir=config_service.output_dir)
-    perfetto_service = PerfettoService(perfetto_adapter, output_dir=config_service.output_dir)
-    traceview_service = TraceviewService(traceview_adapter, output_dir=config_service.output_dir)
-    combo_service = ComboService(
+    device_service = device_service_module.DeviceService(adb_adapter)
+    capture_service = capture_service_module.CaptureService(systrace_adapter, output_dir=config_service.output_dir)
+    simpleperf_service = simpleperf_service_module.SimpleperfService(simpleperf_adapter, output_dir=config_service.output_dir)
+    perfetto_service = perfetto_service_module.PerfettoService(perfetto_adapter, output_dir=config_service.output_dir)
+    traceview_service = traceview_service_module.TraceviewService(traceview_adapter, output_dir=config_service.output_dir)
+    combo_service = combo_service_module.ComboService(
         systrace_service=capture_service,
         simpleperf_service=simpleperf_service,
         perfetto_service=perfetto_service,
@@ -97,15 +117,15 @@ def run() -> None:
     )
 
     # Presenters
-    main_presenter = MainPresenter(device_service)
-    systrace_presenter = SystracePresenter(capture_service)
-    simpleperf_presenter = SimpleperfPresenter(simpleperf_service)
-    perfetto_presenter = PerfettoPresenter(perfetto_service)
-    traceview_presenter = TraceviewPresenter(traceview_service)
-    combo_presenter = ComboPresenter(combo_service)
+    main_presenter = main_presenter_module.MainPresenter(device_service)
+    systrace_presenter = systrace_presenter_module.SystracePresenter(capture_service)
+    simpleperf_presenter = simpleperf_presenter_module.SimpleperfPresenter(simpleperf_service)
+    perfetto_presenter = perfetto_presenter_module.PerfettoPresenter(perfetto_service)
+    traceview_presenter = traceview_presenter_module.TraceviewPresenter(traceview_service)
+    combo_presenter = combo_presenter_module.ComboPresenter(combo_service)
 
     # Create and show window immediately
-    window = MainWindow(
+    window = main_window_module.MainWindow(
         main_presenter,
         systrace_presenter,
         simpleperf_presenter,
@@ -113,7 +133,17 @@ def run() -> None:
         traceview_presenter,
         combo_presenter,
         config_service,
+        auto_refresh_devices=not warmup,
     )
+    if warmup:
+        # Force-create all tabs without touching ADB; then exit immediately.
+        try:
+            window.warmup_ui()
+            app.processEvents()
+        except Exception:
+            pass
+        return
+
     window.show()
 
     sys.exit(app.exec())

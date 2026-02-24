@@ -1,10 +1,16 @@
 import os
 import time
+import re
 from typing import List, Optional
-from easy_tracer.framework.systrace_adapter import SystraceAdapter
+from easy_tracer.framework import systrace_adapter
+
 
 class CaptureService:
-    def __init__(self, systrace_adapter: SystraceAdapter, output_dir: str = "output"):
+    def __init__(
+        self,
+        systrace_adapter: systrace_adapter.SystraceAdapter,
+        output_dir: str = "output",
+    ):
         self.systrace_adapter = systrace_adapter
         self.output_dir = output_dir
 
@@ -34,8 +40,11 @@ class CaptureService:
         Starts a systrace capture.
         Returns the path to the generated output file.
         """
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        filename = f"trace_{timestamp}.html"
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        model = self.systrace_adapter.get_device_model(device_serial) or device_serial
+        sdk = self.systrace_adapter.get_device_sdk_version(device_serial)
+        sdk_text = str(sdk) if sdk is not None else "unknown"
+        filename = f"{self._sanitize_name(model)}_{sdk_text}_systrace_{timestamp}.html"
         base_dir = output_dir or self.output_dir
         if create_subfolder:
             base_dir = os.path.join(base_dir, f"systrace_{timestamp}")
@@ -52,7 +61,13 @@ class CaptureService:
             device_serial=device_serial,
             categories=categories,
             buffer_size_kb=buffer_size_kb,
-            app_name=app_name
+            app_name=app_name,
         )
 
         return output_path
+
+    @staticmethod
+    def _sanitize_name(text: str) -> str:
+        normalized = re.sub(r"[^A-Za-z0-9_-]+", "_", (text or "").strip())
+        normalized = normalized.strip("_")
+        return normalized or "unknown_device"

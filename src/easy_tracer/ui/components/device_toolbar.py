@@ -14,13 +14,15 @@ class DeviceToolbar(QtWidgets.QWidget):
         super().__init__(parent)
         self._devices: List[Device] = []
         self.setSizePolicy(
-            QtWidgets.QSizePolicy.Expanding,
+            QtWidgets.QSizePolicy.Preferred,
             QtWidgets.QSizePolicy.Fixed,
         )
 
         self.label = QtWidgets.QLabel("Device:")
         self.combo = QtWidgets.QComboBox()
-        self.combo.setMinimumWidth(280)
+        self.combo.setMinimumWidth(220)
+        self.combo.setMaximumWidth(360)
+        self.combo.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         self.refresh_button = QtWidgets.QPushButton("Refresh")
 
         self.logcat_cb = QtWidgets.QCheckBox("Logcat")
@@ -33,7 +35,7 @@ class DeviceToolbar(QtWidgets.QWidget):
         row1 = QtWidgets.QHBoxLayout()
         row1.setContentsMargins(0, 0, 0, 0)
         row1.addWidget(self.label)
-        row1.addWidget(self.combo, 1)
+        row1.addWidget(self.combo)
         row1.addWidget(self.refresh_button)
 
         row2 = QtWidgets.QHBoxLayout()

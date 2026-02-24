@@ -26,6 +26,10 @@ dev = [
 where = ["src"]
 include = ["easy_tracer*"]
 
+[tool.setuptools.package-data]
+# Ensure vendored systrace HTML assets are available when installed as a package.
+"easy_tracer.framework.external.systrace" = ["*.html"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py39"

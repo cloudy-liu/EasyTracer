@@ -13,8 +13,8 @@
 
 import sys
 
-import systrace_agent
-from systrace import util
+from .. import systrace_agent
+from .. import util
 
 
 # Prefer modern ps with explicit columns, then thread ps. The importer expects

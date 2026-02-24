@@ -1,6 +1,9 @@
+import logging
 from typing import List, Optional
 from easy_tracer.models.device import Device
 from easy_tracer.services.device_service import DeviceService
+
+logger = logging.getLogger(__name__)
 
 class MainPresenter:
     def __init__(self, device_service: DeviceService):
@@ -15,4 +18,4 @@ class MainPresenter:
         """Handles device selection."""
         self.selected_device = device
         # In a real app, we might notify other parts of the app here
-        print(f"Device selected: {device}")
+        logger.info("Device selected: %s", device)
