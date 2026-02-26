@@ -372,9 +372,7 @@ class SystracePanel(BasePanel):
             self.status_message.emit("Loading categories...")
         elif self.presenter.is_loading_ftrace:
             self.status_message.emit("Loading ftrace events...")
-        elif self.presenter.is_capturing:
-            self.status_message.emit("Capturing trace... Please wait.")
-        else:
+        elif not self.presenter.is_capturing:
             self.status_message.emit("Ready.")
 
         self.load_categories_button.setEnabled(bool(self.device_serial) and not busy)

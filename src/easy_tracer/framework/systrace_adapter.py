@@ -31,6 +31,35 @@ def _ensure_stdio() -> None:
             sys.stderr = _DEVNULL
 
 
+class _TeeStream:
+    """Write-through stream that captures text AND forwards to the original stream."""
+
+    def __init__(self, original: object, buffer: io.StringIO) -> None:
+        self._original = original
+        self._buffer = buffer
+        self.encoding = getattr(original, "encoding", "utf-8")
+
+    def write(self, data: str) -> int:
+        self._buffer.write(data)
+        if self._original is not None:
+            try:
+                self._original.write(data)
+                self._original.flush()
+            except Exception:
+                pass
+        return len(data)
+
+    def flush(self) -> None:
+        if self._original is not None:
+            try:
+                self._original.flush()
+            except Exception:
+                pass
+
+    def isatty(self) -> bool:
+        return False
+
+
 class SystraceAdapter:
     """Adapter for running systrace and querying Android device trace metadata."""
 
@@ -40,11 +69,12 @@ class SystraceAdapter:
     def _set_adb(self) -> None:
         systrace_util.ADB_EXECUTABLE = self.adb_path or "adb"
 
-    def _import_and_run_systrace(self, args: list[str]) -> str:
+    def _import_and_run_systrace(self, args: list[str], *, tee: bool = False) -> str:
         """Run vendored systrace with captured stdio output.
 
-        This compatibility helper preserves legacy behavior expected by older
-        tests/callers while still using the packaged systrace module.
+        When *tee* is True the captured text is also forwarded to the
+        original stdout/stderr so that it appears in the UI log panel
+        in real-time (via the logging-bridge _QtTextStream).
         """
         output_capture = io.StringIO()
         with _SYSTRACE_LOCK:
@@ -52,9 +82,15 @@ class SystraceAdapter:
             try:
                 self._set_adb()
                 _ensure_stdio()
-                with contextlib.redirect_stdout(output_capture), contextlib.redirect_stderr(
-                    output_capture
-                ):
+                if tee:
+                    tee_out = _TeeStream(sys.stdout, output_capture)
+                    tee_err = _TeeStream(sys.stderr, output_capture)
+                    ctx = contextlib.redirect_stdout(tee_out)
+                    ctx2 = contextlib.redirect_stderr(tee_err)
+                else:
+                    ctx = contextlib.redirect_stdout(output_capture)
+                    ctx2 = contextlib.redirect_stderr(output_capture)
+                with ctx, ctx2:
                     systrace_module.main_impl(["systrace.py"] + args)
             except SystemExit as exc:
                 if exc.code not in (0, None):
@@ -81,7 +117,7 @@ class SystraceAdapter:
         args.extend(categories)
 
         logger.info("Running systrace with args: %s", " ".join(args))
-        return self._import_and_run_systrace(args)
+        return self._import_and_run_systrace(args, tee=True)
 
     def get_categories(self, device_serial: str) -> list[str]:
         """Query available atrace categories."""
