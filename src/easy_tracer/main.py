@@ -17,6 +17,7 @@ if not getattr(sys, "frozen", False):
             sys.path.insert(0, str(src_dir))
 
 from PySide6 import QtWidgets
+from easy_tracer.ui.theme import generate_app_stylesheet
 from easy_tracer.framework import adb_helper as adb_helper_module
 from easy_tracer.framework import systrace_adapter as systrace_adapter_module
 from easy_tracer.framework import simpleperf_adapter as simpleperf_adapter_module
@@ -79,6 +80,9 @@ def run() -> None:
     # Heavy service initialization is deferred to avoid blocking UI display
     # =========================================================================
     app = QtWidgets.QApplication(sys.argv)
+
+    # Apply global stylesheet for consistent visual design
+    app.setStyleSheet(generate_app_stylesheet())
 
     app_root = _get_app_root()
     bundled_adb = app_root / "bin" / "adb" / ("adb.exe" if sys.platform == "win32" else "adb")

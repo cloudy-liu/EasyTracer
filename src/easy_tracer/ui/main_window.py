@@ -14,6 +14,7 @@ from easy_tracer.presenters.combo_presenter import ComboPresenter
 from easy_tracer.services.config_service import ConfigService
 from easy_tracer.ui.components.device_toolbar import DeviceToolbar
 from easy_tracer.ui.components.log_panel import LogPanel
+from easy_tracer.ui.theme import record_button_qss, Dimensions
 from easy_tracer.ui import logging_bridge
 from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.panels.device_panel import DevicePanel
@@ -57,7 +58,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Global record button: idle=record(green), busy=stop(red).
         self.record_button = QtWidgets.QPushButton("录制")
-        self.record_button.setMinimumWidth(96)
+        self.record_button.setMinimumWidth(Dimensions.BUTTON_RECORD_WIDTH)
         self.record_button.clicked.connect(self._on_global_record_clicked)
         self.record_button.setEnabled(False)
         self._set_record_button_visuals(is_recording=False)
@@ -336,42 +337,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.record_button.setIcon(
                 self.style().standardIcon(QtWidgets.QStyle.SP_MediaStop)
             )
-            self.record_button.setStyleSheet(
-                "QPushButton {"
-                " background-color: #d32f2f;"
-                " color: white;"
-                " font-weight: 600;"
-                " padding: 4px 12px;"
-                " border: 1px solid #b71c1c;"
-                " border-radius: 4px;"
-                "}"
-                "QPushButton:disabled {"
-                " background-color: #b0bec5;"
-                " color: #eceff1;"
-                " border: 1px solid #90a4ae;"
-                "}"
+        else:
+            self.record_button.setText("录制")
+            self.record_button.setIcon(
+                self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay)
             )
-            return
-
-        self.record_button.setText("录制")
-        self.record_button.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay)
-        )
-        self.record_button.setStyleSheet(
-            "QPushButton {"
-            " background-color: #2e7d32;"
-            " color: white;"
-            " font-weight: 600;"
-            " padding: 4px 12px;"
-            " border: 1px solid #1b5e20;"
-            " border-radius: 4px;"
-            "}"
-            "QPushButton:disabled {"
-            " background-color: #b0bec5;"
-            " color: #eceff1;"
-            " border: 1px solid #90a4ae;"
-            "}"
-        )
+        self.record_button.setStyleSheet(record_button_qss(is_recording))
 
     def _update_record_button_state(self) -> None:
         if self._current_busy:
