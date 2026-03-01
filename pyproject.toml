@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "easy_tracer"
 version = "0.1.0"
 description = "A GUI for various performance tracing tools"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "PySide6",
 ]
@@ -32,9 +32,9 @@ include = ["easy_tracer*"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py39"
+target-version = "py310"
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 strict = true
 ignore_missing_imports = true

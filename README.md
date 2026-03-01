@@ -4,7 +4,7 @@
   <img src="doc/assets/easytracer-logo-brand-guidelines.svg" alt="EasyTracer Logo" width="760" />
 </p>
 
-![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white) ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6?logo=desktop&logoColor=white) ![GUI](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white) ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6?logo=desktop&logoColor=white) ![GUI](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
 
 EasyTracer 是一个面向 Android 性能分析场景的桌面 GUI 工具，统一封装了
 `Systrace`、`Perfetto`、`Simpleperf`、`Traceview` 等常用链路，降低抓取门槛，
@@ -38,7 +38,7 @@ adb devices -l
 
 ## 🧱 技术栈
 
-- Python `>=3.9`
+- Python `>=3.10`
 - PySide6
 - ADB（Android Debug Bridge）
 - PyInstaller（可选，用于打包 EXE）
@@ -47,7 +47,7 @@ adb devices -l
 
 开始前请确保：
 
-- 已安装 Python 3.9+ 并加入 `PATH`
+- 已安装 Python 3.10+ 并加入 `PATH`
 - 已安装 `adb` 并可在终端直接执行
 - Android 设备已开启开发者选项与 USB 调试
 
