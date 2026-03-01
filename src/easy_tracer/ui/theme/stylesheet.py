@@ -228,18 +228,6 @@ def generate_app_stylesheet() -> str:
         QCheckBox::indicator {{
             width: 16px;
             height: 16px;
-            border: 1px solid {Colors.NEUTRAL_400};
-            border-radius: 3px;
-            background-color: {Colors.SURFACE};
-        }}
-
-        QCheckBox::indicator:hover {{
-            border-color: {Colors.PRIMARY};
-        }}
-
-        QCheckBox::indicator:checked {{
-            background-color: {Colors.PRIMARY};
-            border-color: {Colors.PRIMARY};
         }}
 
         /* ===================================================================
