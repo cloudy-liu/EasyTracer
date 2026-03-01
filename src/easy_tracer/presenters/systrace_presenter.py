@@ -1,4 +1,4 @@
-from typing import List, Optional, Callable
+from typing import List, Optional, Callable, Dict
 from easy_tracer.services.capture_service import CaptureService
 
 
@@ -14,6 +14,7 @@ class SystracePresenter:
         self.is_loading_ftrace: bool = False
         self.is_capturing: bool = False
         self.last_output_path: Optional[str] = None
+        self.auxiliary_outputs: Dict[str, str] = {}
         self.error_message: Optional[str] = None
 
     def bind_view_update(self, callback: Callable[[], None]):
@@ -69,7 +70,7 @@ class SystracePresenter:
         buffer_size: int,
         app_name: Optional[str],
         output_dir: Optional[str] = None,
-        create_subfolder: bool = False,
+        auxiliary_options: Optional[Dict[str, bool]] = None,
     ):
         if not device_serial:
             self.error_message = "No device selected."
@@ -83,6 +84,7 @@ class SystracePresenter:
 
         self.is_capturing = True
         self.last_output_path = None
+        self.auxiliary_outputs = {}
         self.error_message = None
         self._notify_view()
 
@@ -94,9 +96,18 @@ class SystracePresenter:
                 buffer_size_kb=buffer_size,
                 app_name=app_name,
                 output_dir=output_dir,
-                create_subfolder=create_subfolder,
             )
             self.last_output_path = path
+
+            # Dump auxiliary logs if requested
+            if auxiliary_options and any(auxiliary_options.values()):
+                # Remove extension from trace path for prefix
+                prefix = path.rsplit(".", 1)[0] if "." in path else path
+                self.auxiliary_outputs = self.capture_service.dump_auxiliary_logs(
+                    device_serial=device_serial,
+                    output_prefix=prefix,
+                    options=auxiliary_options,
+                )
         except Exception as e:
             self.error_message = f"Capture failed: {str(e)}"
         finally:

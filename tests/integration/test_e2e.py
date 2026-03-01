@@ -54,11 +54,11 @@ class TestEndToEnd(unittest.TestCase):
         # Cleanup
         shutil.rmtree(self.test_dir)
 
-    @patch('subprocess.run')
-    def test_e2e_device_list(self, mock_run):
+    @patch('easy_tracer.framework.subprocess_utils.check_output')
+    def test_e2e_device_list(self, mock_check_output):
         """Test fetching device list end-to-end"""
         mock_output = "List of devices attached\ntest_device_serial        device product:test model:Test_Phone device:test\n"
-        mock_run.return_value = MagicMock(stdout=mock_output, returncode=0)
+        mock_check_output.return_value = mock_output
 
         devices = self.device_service.get_connected_devices()
 
@@ -66,12 +66,12 @@ class TestEndToEnd(unittest.TestCase):
         self.assertEqual(devices[0].serial, self.device_serial)
         self.assertEqual(devices[0].model, "Test_Phone")
 
-    @patch('subprocess.run')
+    @patch('easy_tracer.framework.subprocess_utils.check_output')
     @patch('os.path.exists')
-    def test_e2e_systrace_capture(self, mock_exists, mock_run):
+    def test_e2e_systrace_capture(self, mock_exists, mock_check_output):
         """Test Systrace capture orchestration"""
-        mock_exists.return_value = True 
-        mock_run.return_value = MagicMock(stdout="Trace collected", returncode=0)
+        mock_exists.return_value = True
+        mock_check_output.return_value = "Trace collected"
 
         # Mock _import_and_run_systrace
         with patch.object(self.systrace_adapter, '_import_and_run_systrace', return_value="Trace collected"):
@@ -84,12 +84,12 @@ class TestEndToEnd(unittest.TestCase):
             self.assertTrue(path.startswith(self.output_dir))
             self.assertTrue(path.endswith(".html"))
 
-    @patch('subprocess.run')
+    @patch('easy_tracer.framework.subprocess_utils.check_output')
     @patch('os.path.exists')
-    def test_e2e_perfetto_capture(self, mock_exists, mock_run):
+    def test_e2e_perfetto_capture(self, mock_exists, mock_check_output):
         """Test Perfetto capture orchestration"""
         mock_exists.return_value = True
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_check_output.return_value = ""
 
         path = self.perfetto_service.record_trace(
             device_serial=self.device_serial,
@@ -101,13 +101,13 @@ class TestEndToEnd(unittest.TestCase):
         self.assertTrue(path.endswith(".perfetto-trace"))
 
     @patch('os.chdir')
-    @patch('subprocess.run')
+    @patch('easy_tracer.framework.subprocess_utils.check_output')
     @patch('os.path.exists')
     @patch('os.makedirs')
-    def test_e2e_simpleperf_app_profiling(self, mock_makedirs, mock_exists, mock_run, mock_chdir):
+    def test_e2e_simpleperf_app_profiling(self, mock_makedirs, mock_exists, mock_check_output, mock_chdir):
         """Test Simpleperf App profiling orchestration"""
         mock_exists.return_value = True
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_check_output.return_value = ""
 
         # Mock _import_and_run_script
         with patch.object(self.simpleperf_adapter, '_import_and_run_script'):
@@ -118,12 +118,14 @@ class TestEndToEnd(unittest.TestCase):
                 generate_report=True
             )
 
-            self.assertTrue(path.endswith("report.html"))
+            # Path should end with .html (report file)
+            self.assertTrue(path.endswith(".html"))
 
-    @patch('subprocess.run')
-    def test_e2e_traceview_flow(self, mock_run):
+    @patch('time.sleep')
+    @patch('easy_tracer.framework.subprocess_utils.check_output')
+    def test_e2e_traceview_flow(self, mock_check_output, mock_sleep):
         """Test Traceview start/stop flow"""
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_check_output.return_value = ""
 
         self.traceview_service.start_tracing(
             device_serial=self.device_serial,
@@ -139,12 +141,12 @@ class TestEndToEnd(unittest.TestCase):
 
         self.assertTrue(path.endswith(".trace"))
 
-    @patch('subprocess.run')
+    @patch('easy_tracer.framework.subprocess_utils.check_output')
     @patch('os.path.exists')
-    def test_e2e_combo_capture(self, mock_exists, mock_run):
+    def test_e2e_combo_capture(self, mock_exists, mock_check_output):
         """Test Combo Service orchestrating multiple tools"""
         mock_exists.return_value = True
-        mock_run.return_value = MagicMock(returncode=0)
+        mock_check_output.return_value = ""
 
         # Mock internal methods to isolate combo logic
         with patch.object(self.systrace_service, 'start_capture', return_value="sys.html") as mock_sys, \

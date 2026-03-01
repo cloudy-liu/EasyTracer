@@ -1,5 +1,6 @@
 import os
 import time
+from typing import Optional
 from easy_tracer.framework import simpleperf_adapter
 
 class SimpleperfService:
@@ -22,7 +23,8 @@ class SimpleperfService:
         duration_seconds: int = 10,
         frequency: int = 4000,
         generate_report: bool = True,
-        output_dir: str | None = None,
+        output_dir: Optional[str] = None,
+        cold_start: bool = False,
     ) -> str:
         """
         Profiles an Android app using simpleperf.
@@ -30,20 +32,21 @@ class SimpleperfService:
         """
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         base_dir = output_dir or self.output_dir
-        session_dir = os.path.join(base_dir, f"simpleperf_{timestamp}")
-        os.makedirs(session_dir, exist_ok=True)
+        if not os.path.exists(base_dir):
+            os.makedirs(base_dir, exist_ok=True)
 
         # Run profiler
         perf_data_path = self.simpleperf_adapter.run_app_profiler(
             device_serial=device_serial,
             app_name=app_name,
-            output_dir=session_dir,
+            output_dir=base_dir,
             duration_seconds=duration_seconds,
-            frequency=frequency
+            frequency=frequency,
+            cold_start=cold_start,
         )
 
         if generate_report:
-            html_path = os.path.join(session_dir, "report.html")
+            html_path = os.path.join(base_dir, f"report_{timestamp}.html")
             return self.simpleperf_adapter.generate_html_report(perf_data_path, html_path)
 
         return perf_data_path
@@ -54,7 +57,7 @@ class SimpleperfService:
         duration_seconds: int = 10,
         frequency: int = 4000,
         generate_report: bool = True,
-        output_dir: str | None = None,
+        output_dir: Optional[str] = None,
     ) -> str:
         """
         Performs system-wide profiling using simpleperf.
@@ -62,10 +65,10 @@ class SimpleperfService:
         """
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         base_dir = output_dir or self.output_dir
-        session_dir = os.path.join(base_dir, f"simpleperf_system_{timestamp}")
-        os.makedirs(session_dir, exist_ok=True)
+        if not os.path.exists(base_dir):
+            os.makedirs(base_dir, exist_ok=True)
 
-        perf_data_path = os.path.join(session_dir, "perf.data")
+        perf_data_path = os.path.join(base_dir, f"perf_{timestamp}.data")
 
         self.simpleperf_adapter.run_simpleperf_record(
             device_serial=device_serial,
@@ -75,7 +78,7 @@ class SimpleperfService:
         )
 
         if generate_report:
-            html_path = os.path.join(session_dir, "report.html")
+            html_path = os.path.join(base_dir, f"report_{timestamp}.html")
             return self.simpleperf_adapter.generate_html_report(perf_data_path, html_path)
 
         return perf_data_path

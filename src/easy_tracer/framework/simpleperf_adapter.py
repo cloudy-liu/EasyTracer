@@ -1,22 +1,44 @@
-import concurrent.futures  # Ensures stdlib module is bundled for dynamic vendor script imports (PyInstaller).
-import webbrowser  # Ensures stdlib module is bundled for dynamic vendor script imports (PyInstaller).
-import os
-import sys
-import io
+"""Simpleperf CPU profiling adapter.
+
+Delegates all ADB operations to adb_helper for unified resource management.
+"""
+
+from __future__ import annotations
+
+import concurrent.futures  # noqa: F401 - Required for PyInstaller bundling
+import webbrowser  # noqa: F401 - Required for PyInstaller bundling
 import contextlib
 import importlib.util
-from typing import Optional
+import io
+import logging
+import os
+import sys
+import time
 
-from easy_tracer.framework import subprocess_utils
+from easy_tracer.framework import adb_helper
+
+logger = logging.getLogger(__name__)
 
 
 class SimpleperfAdapter:
-    def __init__(self, adb_path: str = "adb"):
-        self.adb_path = adb_path
-        # Calculate path to simpleperf scripts
+    def __init__(
+        self,
+        adb: adb_helper.AdbHelper | None = None,
+        adb_path: str = "adb",
+    ):
+        self.adb = adb if adb else adb_helper.AdbHelper(adb_path)
         current_dir = os.path.dirname(os.path.abspath(__file__))
         self.simpleperf_dir = os.path.join(current_dir, "external", "simpleperf")
         self.report_html_path = os.path.join(self.simpleperf_dir, "report_html.py")
+
+    def _force_stop_app(self, device_serial: str, app_name: str) -> None:
+        """Force stop an app for cold start."""
+        logger.info(f"Force stopping {app_name}...")
+        try:
+            self.adb.run_shell(device_serial, "am", "force-stop", app_name)
+            time.sleep(0.5)
+        except Exception as e:
+            logger.warning(f"Failed to force stop {app_name}: {e}")
 
     def _import_and_run_script(self, script_path: str, module_name: str, args: list) -> str:
         """Helper to import a script and run its main function with patched sys.argv"""
@@ -31,7 +53,6 @@ class SimpleperfAdapter:
         sys.modules[module_name] = module
         spec.loader.exec_module(module)
 
-        # Patch sys.argv
         original_argv = sys.argv
         sys.argv = [os.path.basename(script_path)] + args
 
@@ -58,23 +79,21 @@ class SimpleperfAdapter:
         output_dir: str,
         duration_seconds: int = 10,
         frequency: int = 4000,
-        record_options: Optional[str] = None,
+        record_options: str | None = None,
+        cold_start: bool = False,
     ) -> str:
-        """Profiles an Android app using simpleperf.
-
-        Preferred path is to use the official `app_profiler.py` orchestration
-        script when present. However, EasyTracer's vendored simpleperf bundle may
-        only include the report generator pieces; in that case we fall back to
-        running `adb shell simpleperf record --app <pkg>` directly.
-        """
+        """Profiles an Android app using simpleperf."""
         app_profiler_path = os.path.join(self.simpleperf_dir, "app_profiler.py")
 
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
 
-        perf_data_path = os.path.join(output_dir, "perf.data")
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        perf_data_path = os.path.join(output_dir, f"perf_{timestamp}.data")
 
-        # If app_profiler.py isn't available, fall back to direct record.
+        if cold_start:
+            self._force_stop_app(device_serial, app_name)
+
         if not os.path.exists(app_profiler_path):
             self.run_simpleperf_record(
                 device_serial=device_serial,
@@ -85,7 +104,6 @@ class SimpleperfAdapter:
             )
             return perf_data_path
 
-        # Change CWD to output_dir so relative paths work if the script uses them.
         original_cwd = os.getcwd()
         os.chdir(output_dir)
 
@@ -98,7 +116,7 @@ class SimpleperfAdapter:
             ]
 
             if record_options:
-                args[-1] = record_options # Replace the -r default
+                args[-1] = record_options
 
             self._import_and_run_script(app_profiler_path, "app_profiler", args)
             return perf_data_path
@@ -108,18 +126,12 @@ class SimpleperfAdapter:
     def generate_html_report(self, perf_data_path: str, output_html_path: str) -> str:
         """Generates an HTML report from perf.data."""
         if not os.path.exists(self.report_html_path):
-            raise FileNotFoundError(
-                f"report_html.py not found at {self.report_html_path}"
-            )
+            raise FileNotFoundError(f"report_html.py not found at {self.report_html_path}")
 
         if not os.path.exists(perf_data_path):
             raise FileNotFoundError(f"perf.data not found at {perf_data_path}")
 
-        args = [
-            "-i", perf_data_path,
-            "-o", output_html_path,
-        ]
-
+        args = ["-i", perf_data_path, "-o", output_html_path]
         self._import_and_run_script(self.report_html_path, "report_html", args)
         return output_html_path
 
@@ -129,33 +141,24 @@ class SimpleperfAdapter:
         output_path: str,
         duration_seconds: int = 10,
         frequency: int = 4000,
-        pid: Optional[int] = None,
-        process_name: Optional[str] = None,
+        pid: int | None = None,
+        process_name: str | None = None,
     ) -> str:
         """Runs simpleperf record directly on the device."""
-        simpleperf_cmd = (
-            f"simpleperf record -f {frequency} --duration {duration_seconds}"
-        )
+        device_perf_path = "/data/local/tmp/perf.data"
+
+        cmd_parts = ["simpleperf", "record", "-f", str(frequency), "--duration", str(duration_seconds)]
 
         if pid:
-            simpleperf_cmd += f" -p {pid}"
+            cmd_parts.extend(["-p", str(pid)])
         elif process_name:
-            simpleperf_cmd += f" --app {process_name}"
+            cmd_parts.extend(["--app", process_name])
         else:
-            simpleperf_cmd += " -a"  # System-wide
+            cmd_parts.append("-a")  # System-wide
 
-        simpleperf_cmd += " -o /data/local/tmp/perf.data"
-        adb_cmd = [self.adb_path, "-s", device_serial, "shell", simpleperf_cmd]
+        cmd_parts.extend(["-o", device_perf_path])
 
-        subprocess_utils.check_output(adb_cmd)
-        # Pull the file
-        pull_cmd = [
-            self.adb_path,
-            "-s",
-            device_serial,
-            "pull",
-            "/data/local/tmp/perf.data",
-            output_path,
-        ]
-        subprocess_utils.check_output(pull_cmd)
+        self.adb.run_shell(device_serial, *cmd_parts)
+        self.adb.pull_file(device_serial, device_perf_path, output_path)
+
         return output_path

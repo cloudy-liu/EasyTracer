@@ -8,10 +8,8 @@ import re
 import sys
 import threading
 
-from easy_tracer.framework import subprocess_utils
 from easy_tracer.framework import adb_helper
 from easy_tracer.framework.external.systrace import systrace as systrace_module
-from easy_tracer.framework.external.systrace import util as systrace_util
 
 logger = logging.getLogger(__name__)
 
@@ -63,24 +61,21 @@ class _TeeStream:
 class SystraceAdapter:
     """Adapter for running systrace and querying Android device trace metadata."""
 
-    def __init__(self, adb_path: str = "adb") -> None:
-        self.adb_path = adb_path
-
-    def _set_adb(self) -> None:
-        systrace_util.ADB_EXECUTABLE = self.adb_path or "adb"
+    def __init__(
+        self,
+        adb: adb_helper.AdbHelper | None = None,
+        adb_path: str = "adb",
+    ) -> None:
+        self.adb = adb if adb else adb_helper.AdbHelper(adb_path)
 
     def _import_and_run_systrace(self, args: list[str], *, tee: bool = False) -> str:
         """Run vendored systrace with captured stdio output.
 
-        When *tee* is True the captured text is also forwarded to the
-        original stdout/stderr so that it appears in the UI log panel
-        in real-time (via the logging-bridge _QtTextStream).
+        Injects adb_helper into the options namespace so agents can use unified ADB ops.
         """
         output_capture = io.StringIO()
         with _SYSTRACE_LOCK:
-            prev_adb = systrace_util.ADB_EXECUTABLE
             try:
-                self._set_adb()
                 _ensure_stdio()
                 if tee:
                     tee_out = _TeeStream(sys.stdout, output_capture)
@@ -91,13 +86,34 @@ class SystraceAdapter:
                     ctx = contextlib.redirect_stdout(output_capture)
                     ctx2 = contextlib.redirect_stderr(output_capture)
                 with ctx, ctx2:
-                    systrace_module.main_impl(["systrace.py"] + args)
+                    self._run_systrace_with_adb(["systrace.py"] + args)
             except SystemExit as exc:
                 if exc.code not in (0, None):
                     raise RuntimeError(f"Systrace exited with code {exc.code}") from exc
-            finally:
-                systrace_util.ADB_EXECUTABLE = prev_adb
         return output_capture.getvalue()
+
+    def _run_systrace_with_adb(self, argv: list[str]) -> None:
+        """Parse systrace args and inject adb_helper before running."""
+        options, categories = systrace_module.parse_options(argv)
+        options.adb_helper = self.adb
+        agents = systrace_module.create_agents(options, categories)
+
+        if not agents:
+            sys.stderr.write('No systrace agent is available.\n')
+            sys.exit(1)
+
+        for a in agents:
+            a.start()
+
+        for a in agents:
+            a.collect_result()
+            if not a.expect_trace():
+                return
+
+        if options.list_categories:
+            return
+
+        systrace_module.write_trace_html(options.output_file, agents)
 
     def run_systrace(
         self,
@@ -135,21 +151,15 @@ class SystraceAdapter:
 
     def get_ftrace_events(self, device_serial: str) -> list[str]:
         """Query available ftrace events from the device."""
-        cmd = [self.adb_path, "-s", device_serial, "shell",
-               "cat", "/sys/kernel/tracing/available_events"]
-        out = subprocess_utils.check_output(cmd)
+        out = self.adb.run_shell(device_serial, "cat", "/sys/kernel/tracing/available_events")
         return [line.strip() for line in out.splitlines() if line.strip()]
 
     def get_device_sdk_version(self, device_serial: str) -> int | None:
         if not device_serial:
             return None
-        try:
-            self._set_adb()
-            sdk = systrace_util.get_device_sdk_version(device_serial)
-        except (SystemExit, Exception):
-            return None
-        return sdk if isinstance(sdk, int) and sdk > 0 else None
+        sdk = self.adb.get_sdk_version(device_serial)
+        return sdk if sdk > 0 else None
 
     def get_device_model(self, device_serial: str) -> str:
         """Compatibility passthrough to centralized ADB helper."""
-        return adb_helper.AdbHelper(self.adb_path).get_device_model(device_serial)
+        return self.adb.get_device_model(device_serial)

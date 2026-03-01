@@ -1,5 +1,5 @@
 from typing import Optional, Dict, Any
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtWidgets, QtGui
 from easy_tracer.presenters.combo_presenter import ComboPresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
@@ -29,32 +29,10 @@ class ComboSettingsDialog(BaseSettingsDialog):
 
 class ComboPanel(BasePanel):
     def __init__(self, presenter: ComboPresenter, device_serial: Optional[str], default_output_dir: str):
-        # Note: Added default_output_dir to signature to match other panels if needed,
-        # but ComboPresenter might not use it directly in __init__?
-        # Checking previous implementation: __init__(self, presenter, device_serial)
-        # But MainWindow passes config_service.output_dir.
-        # Let's check MainWindow... it passes config_service.output_dir to others,
-        # but ComboPanel instantiation in MainWindow:
-        # self.combo_panel = ComboPanel(combo_presenter, None) -> Wait, let's check MainWindow code from previous turn.
-        # MainWindow.__init__:
-        # self.combo_panel = ComboPanel(combo_presenter, None)
-        # So it does NOT accept output_dir in init in previous version.
-        # However, to support OutputPathWidget, we need it.
-        # I should probably update MainWindow to pass it, or just use "." default and let set_output_dir handle it.
-        # For now, I will keep signature compatible but maybe add optional, or update MainWindow later?
-        # Actually, looking at the previous file content of combo_panel.py:
-        # class ComboPanel(QtWidgets.QWidget):
-        #     def __init__(self, presenter: ComboPresenter, device_serial: Optional[str]):
-        # So I should stick to that signature or change MainWindow.
-        # Changing MainWindow is safer to ensure it works.
-        # Wait, I can't see MainWindow right now.
-        # I will stick to the existing signature and default the output dir if not passed,
-        # OR I can accept it if I update MainWindow.
-        # Let's see... I'll check if I can just use "." and rely on _apply_runtime_settings in MainWindow to set it.
-
         super().__init__()
         self.presenter = presenter
         self.device_serial = device_serial
+        self._auxiliary_options: Dict[str, bool] = {}
         self._update_emitter = _UpdateEmitter()
         self._update_emitter.updated.connect(self.update_view)
         self.presenter.bind_view_update(self._update_emitter.updated.emit)
@@ -78,10 +56,17 @@ class ComboPanel(BasePanel):
         self.settings_btn = QtWidgets.QPushButton("Settings")
         self.settings_btn.clicked.connect(self.settings_dialog.exec)
 
-        # We need an output path widget.
-        # Since constructor doesn't take it, we'll initialize with "."
-        # MainWindow's _apply_runtime_settings will update it shortly after startup.
-        self.output_path = OutputPathWidget(".")
+        self.output_path = OutputPathWidget(
+            default_output_dir,
+            label="",
+            editable=False,
+            tooltip="Shared output directory. Edit in Settings panel.",
+        )
+
+        self.open_output_btn = QtWidgets.QPushButton("📂")
+        self.open_output_btn.setToolTip("Open output directory")
+        self.open_output_btn.setMaximumWidth(36)
+        self.open_output_btn.clicked.connect(self._on_open_output)
 
         # --- Tool Checkboxes ---
         self.perfetto_cb = QtWidgets.QCheckBox("Perfetto")
@@ -95,8 +80,6 @@ class ComboPanel(BasePanel):
         self.result_text.setReadOnly(True)
 
         # --- Layout ---
-        # Row 1: Duration | Target | Output | Settings
-
         # Target Group
         target_layout = QtWidgets.QHBoxLayout()
         target_layout.setContentsMargins(0,0,0,0)
@@ -110,7 +93,9 @@ class ComboPanel(BasePanel):
         row1.addWidget(self.duration_spin)
         row1.addWidget(QtWidgets.QLabel("Target:"))
         row1.addWidget(target_widget, 1)
+        row1.addWidget(QtWidgets.QLabel("Output:"))
         row1.addWidget(self.output_path, 1)
+        row1.addWidget(self.open_output_btn)
         row1.addWidget(self.settings_btn)
 
         # Row 2: Tools
@@ -133,6 +118,14 @@ class ComboPanel(BasePanel):
 
     def _toggle_target_input(self, text: str) -> None:
         self.target_input.setEnabled(text == "自定义包名")
+
+    def set_auxiliary_options(self, options: Dict[str, bool]) -> None:
+        """Set auxiliary output options from main window."""
+        self._auxiliary_options = options
+
+    def _on_open_output(self) -> None:
+        output_dir = self.output_path.output_dir()
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(output_dir))
 
     def update_device(self, serial: Optional[str]) -> None:
         self.device_serial = serial
@@ -186,32 +179,7 @@ class ComboPanel(BasePanel):
             "simpleperf_freq": int(self.settings_dialog.simpleperf_freq.currentText()),
         }
 
-        # Note: ComboPresenter.start_combo signature:
-        # def start_combo(self, device_serial: str, duration: int, enabled_tools: dict, configs: dict)
-        # It doesn't take output_dir?
-        # Let's check ComboPresenter to be safe, but I can't see it now.
-        # Assuming previous implementation was correct:
-        # run_in_thread(self.presenter.start_combo, ..., configs)
-        # It seems it uses internal logic for output path or it's in configs?
-        # Previous ComboPanel._on_start didn't pass output_dir.
-        # But we added OutputPathWidget.
-        # If the presenter doesn't take it, we might need to set it on the service or similar.
-        # However, MainWindow._apply_runtime_settings does:
-        # self.combo_presenter.combo_service.output_dir = output_dir
-        # So we just need to ensure the widget reflects that.
-        # And if the user changes it in the widget, we should probably update the service.
-        # But BasePanel/Presenter pattern usually passes it in start.
-        # If ComboPresenter doesn't take it in start_combo, we rely on the service's state.
-        # To be safe, I'll update the service's output_dir before starting if possible,
-        # or just rely on what was set globally.
-        # Actually, let's look at MainWindow again from my memory/previous turns.
-        # MainWindow updates combo_presenter.combo_service.output_dir.
-        # So the widget here might be just visual if we don't pass it.
-        # But if the user changes it here, it won't apply unless we pass it.
-        # Since I can't easily change Presenter signature safely without seeing it,
-        # I will assume the user sets global output dir in Settings or it's synced.
-        # BUT, the user expects the "Output" widget on this panel to do something.
-        # If I can't pass it to start_combo, I should update the service property.
+        # Update service output dir before starting
         self.presenter.combo_service.output_dir = self.output_path.output_dir()
 
         run_in_thread(

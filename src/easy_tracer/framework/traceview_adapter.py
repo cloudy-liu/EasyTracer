@@ -1,10 +1,20 @@
+"""Traceview (method tracing) adapter.
+
+Delegates all ADB operations to adb_helper for unified resource management.
+"""
+
 import time
-from easy_tracer.framework import subprocess_utils
+
+from easy_tracer.framework import adb_helper
 
 
 class TraceviewAdapter:
-    def __init__(self, adb_path: str = "adb"):
-        self.adb_path = adb_path
+    def __init__(
+        self,
+        adb: adb_helper.AdbHelper | None = None,
+        adb_path: str = "adb",
+    ):
+        self.adb = adb if adb else adb_helper.AdbHelper(adb_path)
 
     def start_tracing(
         self,
@@ -16,57 +26,24 @@ class TraceviewAdapter:
         """Starts method tracing for the specified package."""
         trace_file = f"/data/local/tmp/{package_name}.trace"
 
-        cmd = [self.adb_path, "-s", device_serial, "shell", "am", "profile", "start"]
-
+        cmd_parts = ["am", "profile", "start"]
         if sampling:
-            cmd.extend(["--sampling", str(sampling_interval)])
+            cmd_parts.extend(["--sampling", str(sampling_interval)])
+        cmd_parts.extend([package_name, trace_file])
 
-        cmd.extend([package_name, trace_file])
-
-        out = subprocess_utils.check_output(cmd)
-        # am profile 通常无输出；保留 out 以便排障
+        self.adb.run_shell(device_serial, *cmd_parts)
 
     def stop_tracing(
         self, device_serial: str, package_name: str, output_path: str
     ) -> str:
         """Stops method tracing and pulls the trace file."""
-        # Stop profiling
-        subprocess_utils.check_output(
-            [
-                self.adb_path,
-                "-s",
-                device_serial,
-                "shell",
-                "am",
-                "profile",
-                "stop",
-                package_name,
-            ]
-        )
+        self.adb.run_shell(device_serial, "am", "profile", "stop", package_name)
 
         # Give Android a moment to flush the file
         time.sleep(1)
 
         device_trace_file = f"/data/local/tmp/{package_name}.trace"
-
-        # Pull file
-        subprocess_utils.check_output(
-            [
-                self.adb_path,
-                "-s",
-                device_serial,
-                "pull",
-                device_trace_file,
-                output_path,
-            ]
-        )
-
-        # Cleanup
-        try:
-            subprocess_utils.check_output(
-                [self.adb_path, "-s", device_serial, "shell", "rm", device_trace_file]
-            )
-        except Exception:
-            pass
+        self.adb.pull_file(device_serial, device_trace_file, output_path)
+        self.adb.remove_file(device_serial, device_trace_file)
 
         return output_path

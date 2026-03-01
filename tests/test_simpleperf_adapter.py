@@ -3,29 +3,28 @@ from unittest.mock import MagicMock, patch
 import sys
 import os
 
-# Add src to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 from easy_tracer.framework.simpleperf_adapter import SimpleperfAdapter
+from easy_tracer.framework.adb_helper import AdbHelper
+
 
 class TestSimpleperfAdapter(unittest.TestCase):
     def setUp(self):
-        self.adapter = SimpleperfAdapter()
+        self.mock_adb = MagicMock(spec=AdbHelper)
+        self.mock_adb.run_shell.return_value = ""
+        self.adapter = SimpleperfAdapter(adb=self.mock_adb)
 
     @patch('os.chdir')
-    @patch('subprocess.run')
     @patch('os.path.exists')
     @patch('os.makedirs')
-    def test_run_app_profiler_success(self, mock_makedirs, mock_exists, mock_run, mock_chdir):
-        # Mock paths existing
+    def test_run_app_profiler_success(self, mock_makedirs, mock_exists, mock_chdir):
         mock_exists.return_value = True
-        mock_run.return_value = MagicMock(returncode=0)
 
         device_serial = "12345"
         app_name = "com.example.app"
         output_dir = "out"
 
-        # Mock _import_and_run_script to avoid actual execution
         with patch.object(self.adapter, '_import_and_run_script') as mock_run_script:
             path = self.adapter.run_app_profiler(
                 device_serial=device_serial,
@@ -34,10 +33,10 @@ class TestSimpleperfAdapter(unittest.TestCase):
                 duration_seconds=5
             )
 
-            expected_path = os.path.join(output_dir, "perf.data")
-            self.assertEqual(path, expected_path)
+            # Path should contain perf_ prefix with timestamp
+            self.assertTrue(path.startswith(os.path.join(output_dir, "perf_")))
+            self.assertTrue(path.endswith(".data"))
 
-            # Verify arguments passed to the script runner
             args = mock_run_script.call_args[0]
             self.assertIn("app_profiler.py", args[0])
             self.assertEqual(args[1], "app_profiler")
@@ -47,10 +46,7 @@ class TestSimpleperfAdapter(unittest.TestCase):
             self.assertIn("--serial", script_args)
             self.assertIn(device_serial, script_args)
 
-    @patch('subprocess.run')
-    def test_run_simpleperf_record_success(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
-
+    def test_run_simpleperf_record_success(self):
         output_path = "local_perf.data"
         self.adapter.run_simpleperf_record(
             device_serial="123",
@@ -58,34 +54,34 @@ class TestSimpleperfAdapter(unittest.TestCase):
             duration_seconds=5
         )
 
-        # Should have called adb shell simpleperf record ...
-        # And then adb pull ...
-        self.assertEqual(mock_run.call_count, 2)
+        # Should have called run_shell for simpleperf record
+        self.mock_adb.run_shell.assert_called_once()
+        args = self.mock_adb.run_shell.call_args[0]
+        self.assertEqual(args[0], "123")
+        cmd_parts = args[1:]
+        self.assertIn("simpleperf", cmd_parts)
+        self.assertIn("record", cmd_parts)
 
-        # Check first call (record)
-        args1 = mock_run.call_args_list[0][0][0]
-        self.assertEqual(args1[0], "adb")
-        self.assertIn("simpleperf record", args1[4])
-
-        # Check second call (pull)
-        args2 = mock_run.call_args_list[1][0][0]
-        self.assertEqual(args2[0], "adb")
-        self.assertEqual(args2[3], "pull")
+        # Should have called pull_file
+        self.mock_adb.pull_file.assert_called_once()
+        pull_args = self.mock_adb.pull_file.call_args[0]
+        self.assertEqual(pull_args[0], "123")
+        self.assertEqual(pull_args[2], output_path)
 
     @patch('easy_tracer.framework.simpleperf_adapter.SimpleperfAdapter._import_and_run_script')
     @patch('os.path.exists')
     def test_generate_html_report_success(self, mock_exists, mock_run_script):
         mock_exists.return_value = True
-        
+
         html_path = self.adapter.generate_html_report("perf.data", "report.html")
         self.assertEqual(html_path, "report.html")
 
         args = mock_run_script.call_args[0]
-        # args: (script_path, module_name, script_args)
         self.assertIn("report_html.py", args[0])
         self.assertEqual(args[1], "report_html")
         self.assertIn("-i", args[2])
         self.assertIn("perf.data", args[2])
+
 
 if __name__ == '__main__':
     unittest.main()

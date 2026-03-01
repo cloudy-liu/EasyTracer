@@ -2,6 +2,11 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+"""Atrace agent for capturing Android system traces.
+
+ADB operations are delegated to adb_helper (injected via options.adb_helper).
+"""
+
 import queue
 import re
 import subprocess
@@ -9,10 +14,28 @@ import sys
 import threading
 import time
 import zlib
-import os
 
 from .. import systrace_agent
-from .. import util
+
+
+# =========================================================================
+# HELPER FUNCTIONS
+# =========================================================================
+
+def _construct_adb_shell_command(adb_path, shell_args, device_serial):
+    """Build ADB shell command array."""
+    cmd = [adb_path, 'shell', ' '.join(shell_args)]
+    if device_serial:
+        cmd.insert(1, device_serial)
+        cmd.insert(1, '-s')
+    return cmd
+
+
+def _run_adb_shell(adb_helper, shell_args, device_serial):
+    """Run ADB shell command and return (output, return_code)."""
+    if adb_helper is None:
+        return '', 1
+    return adb_helper.run_shell_with_status(device_serial, *shell_args)
 
 # Text that ADB sends, but does not need to be displayed to the user.
 ADB_IGNORE_REGEXP = r'^capturing trace\.\.\. done|^capturing trace\.\.\.'
@@ -56,7 +79,12 @@ def try_create_agent(options, categories):
     if options.from_file is not None:
         return AtraceAgent(options, categories)
 
-    device_sdk_version = util.get_device_sdk_version(options.device_serial)
+    adb = getattr(options, 'adb_helper', None)
+    if adb is None:
+        print('Error: adb_helper not provided in options', file=sys.stderr)
+        sys.exit(1)
+
+    device_sdk_version = adb.get_sdk_version(options.device_serial)
     if device_sdk_version >= 18:
         if options.boot:
             # atrace --async_stop, which is used by BootAgent, does not work properly
@@ -80,8 +108,9 @@ class AtraceAgent(systrace_agent.SystraceAgent):
         self._adb = None
         self._trace_data = None
         self._tracer_args = None
+        self._adb_helper = getattr(options, 'adb_helper', None)
         if not self._categories:
-            self._categories = get_default_categories(self._options.device_serial)
+            self._categories = get_default_categories(options.device_serial, self._adb_helper)
 
     def start(self):
         self._tracer_args = self._construct_trace_command()
@@ -102,8 +131,9 @@ class AtraceAgent(systrace_agent.SystraceAgent):
         return 'trace-data'
 
     def _construct_list_categories_command(self):
-        return util.construct_adb_shell_command(
-            LIST_CATEGORIES_ARGS, self._options.device_serial)
+        adb_path = self._adb_helper.adb_path if self._adb_helper else 'adb'
+        return _construct_adb_shell_command(
+            adb_path, LIST_CATEGORIES_ARGS, self._options.device_serial)
 
     def _construct_extra_trace_command(self):
         extra_args = []
@@ -150,8 +180,9 @@ class AtraceAgent(systrace_agent.SystraceAgent):
             extra_args = self._construct_extra_trace_command()
             atrace_args.extend(extra_args)
 
-            tracer_args = util.construct_adb_shell_command(
-                atrace_args, self._options.device_serial)
+            adb_path = self._adb_helper.adb_path if self._adb_helper else 'adb'
+            tracer_args = _construct_adb_shell_command(
+                adb_path, atrace_args, self._options.device_serial)
 
         return tracer_args
 
@@ -312,7 +343,7 @@ class AtraceAgent(systrace_agent.SystraceAgent):
 
         if self._options.fix_threads:
             # Issue ps command to device and patch thread names
-            ps_dump = do_preprocess_adb_cmd('ps -t', self._options.device_serial)
+            ps_dump = do_preprocess_adb_cmd('ps -t', self._options.device_serial, self._adb_helper)
             if ps_dump is not None:
                 thread_names = extract_thread_list(ps_dump)
                 trace_text = fix_thread_names(trace_text, thread_names)
@@ -321,7 +352,7 @@ class AtraceAgent(systrace_agent.SystraceAgent):
             # Issue printf command to device and patch tgids
             procfs_dump = do_preprocess_adb_cmd('printf "%s\\n" ' +
                                                 '/proc/[0-9]*/task/[0-9]*',
-                                                self._options.device_serial)
+                                                self._options.device_serial, self._adb_helper)
             if procfs_dump is not None:
                 pid2_tgid = extract_tgids(procfs_dump)
                 trace_text = fix_missing_tgids(trace_text, pid2_tgid)
@@ -347,8 +378,8 @@ class AtraceLegacyAgent(AtraceAgent):
         super(AtraceLegacyAgent, self).start()
         if self.expect_trace():
             SHELL_ARGS = ['getprop', 'debug.atrace.tags.enableflags']
-            output, return_code = util.run_adb_shell(SHELL_ARGS,
-                                                     self._options.device_serial)
+            output, return_code = _run_adb_shell(
+                self._adb_helper, SHELL_ARGS, self._options.device_serial)
             if return_code != 0:
                 print('\nThe command "%s" failed with the following message:'
                       % ' '.join(SHELL_ARGS), file=sys.stderr)
@@ -425,7 +456,9 @@ class BootAgent(AtraceAgent):
         echo_args = ['echo'] + self._categories + ['>', BOOTTRACE_CATEGORIES]
         setprop_args = ['setprop', BOOTTRACE_PROP, '1']
         reboot_args = ['reboot']
-        return util.construct_adb_shell_command(
+        adb_path = self._adb_helper.adb_path if self._adb_helper else 'adb'
+        return _construct_adb_shell_command(
+            adb_path,
             echo_args + ['&&'] + setprop_args + ['&&'] + reboot_args,
             self._options.device_serial)
 
@@ -434,7 +467,9 @@ class BootAgent(AtraceAgent):
         atrace_args = ['atrace', '--async_stop']
         setprop_args = ['setprop', BOOTTRACE_PROP, '0']
         rm_args = ['rm', BOOTTRACE_CATEGORIES]
-        return util.construct_adb_shell_command(
+        adb_path = self._adb_helper.adb_path if self._adb_helper else 'adb'
+        return _construct_adb_shell_command(
+            adb_path,
             atrace_args + ['&&'] + setprop_args + ['&&'] + rm_args,
             self._options.device_serial)
 
@@ -502,9 +537,9 @@ class FileReaderThread(threading.Thread):
         self._chunk_size = chunk_size
 
 
-def get_default_categories(device_serial):
-    categories_output, return_code = util.run_adb_shell(LIST_CATEGORIES_ARGS,
-                                                        device_serial)
+def get_default_categories(device_serial, adb_helper):
+    categories_output, return_code = _run_adb_shell(
+        adb_helper, LIST_CATEGORIES_ARGS, device_serial)
 
     if return_code == 0 and categories_output:
         categories = [c.split('-')[0].strip()
@@ -730,9 +765,9 @@ def do_popen(args):
     return adb
 
 
-def do_preprocess_adb_cmd(command, serial):
+def do_preprocess_adb_cmd(command, serial, adb_helper):
     args = [command]
-    dump, ret_code = util.run_adb_shell(args, serial)
+    dump, ret_code = _run_adb_shell(adb_helper, args, serial)
     if ret_code != 0:
         return None
 

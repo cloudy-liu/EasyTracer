@@ -1,5 +1,6 @@
 import os
 import time
+from typing import Optional
 from easy_tracer.framework import traceview_adapter
 
 class TraceviewService:
@@ -23,8 +24,7 @@ class TraceviewService:
         self,
         device_serial: str,
         package_name: str,
-        output_dir: str | None = None,
-        create_subfolder: bool = False,
+        output_dir: Optional[str] = None,
     ) -> str:
         """
         Stops method tracing and pulls the file.
@@ -33,8 +33,6 @@ class TraceviewService:
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filename = f"traceview_{package_name}_{timestamp}.trace"
         base_dir = output_dir or self.output_dir
-        if create_subfolder:
-            base_dir = os.path.join(base_dir, f"traceview_{timestamp}")
         if not os.path.exists(base_dir):
             os.makedirs(base_dir, exist_ok=True)
         output_path = os.path.join(base_dir, filename)

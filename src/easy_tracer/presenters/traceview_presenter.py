@@ -54,7 +54,7 @@ class TraceviewPresenter:
         finally:
             self._notify_view()
 
-    def stop_tracing(self, device_serial: str, output_dir: Optional[str] = None, create_subfolder: bool = False):
+    def stop_tracing(self, device_serial: str, output_dir: Optional[str] = None):
         if not device_serial:
             self.error_message = "No device selected."
             self._notify_view()
@@ -72,7 +72,6 @@ class TraceviewPresenter:
                 device_serial=device_serial,
                 package_name=self.current_package,
                 output_dir=output_dir,
-                create_subfolder=create_subfolder,
             )
             self.last_output_path = path
         except Exception as e:

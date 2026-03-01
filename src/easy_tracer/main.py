@@ -99,16 +99,24 @@ def run() -> None:
     if not warmup:
         atexit.register(lambda: _kill_adb_server(config_service.adb_path))
 
-    # Lightweight adapters - these just store paths, no I/O
-    adb_adapter = adb_helper_module.AdbHelper(adb_path=config_service.adb_path)
-    systrace_adapter = systrace_adapter_module.SystraceAdapter(adb_path=config_service.adb_path)
-    simpleperf_adapter = simpleperf_adapter_module.SimpleperfAdapter(adb_path=config_service.adb_path)
-    perfetto_adapter = perfetto_adapter_module.PerfettoAdapter(adb_path=config_service.adb_path)
-    traceview_adapter = traceview_adapter_module.TraceviewAdapter(adb_path=config_service.adb_path)
+    # =========================================================================
+    # UNIFIED ADB HELPER - Single source of truth for all ADB operations
+    # =========================================================================
+    adb = adb_helper_module.AdbHelper(adb_path=config_service.adb_path)
+
+    # Adapters - share the same AdbHelper instance for unified resource management
+    systrace_adapter = systrace_adapter_module.SystraceAdapter(adb=adb)
+    simpleperf_adapter = simpleperf_adapter_module.SimpleperfAdapter(adb=adb)
+    perfetto_adapter = perfetto_adapter_module.PerfettoAdapter(adb=adb)
+    traceview_adapter = traceview_adapter_module.TraceviewAdapter(adb=adb)
 
     # Services - lightweight wrappers
-    device_service = device_service_module.DeviceService(adb_adapter)
-    capture_service = capture_service_module.CaptureService(systrace_adapter, output_dir=config_service.output_dir)
+    device_service = device_service_module.DeviceService(adb)
+    capture_service = capture_service_module.CaptureService(
+        systrace_adapter,
+        output_dir=config_service.output_dir,
+        adb_helper=adb,
+    )
     simpleperf_service = simpleperf_service_module.SimpleperfService(simpleperf_adapter, output_dir=config_service.output_dir)
     perfetto_service = perfetto_service_module.PerfettoService(perfetto_adapter, output_dir=config_service.output_dir)
     traceview_service = traceview_service_module.TraceviewService(traceview_adapter, output_dir=config_service.output_dir)
@@ -120,11 +128,17 @@ def run() -> None:
         output_dir=config_service.output_dir,
     )
 
-    # Presenters
+    # Presenters - pass capture_service for auxiliary dump functionality
     main_presenter = main_presenter_module.MainPresenter(device_service)
     systrace_presenter = systrace_presenter_module.SystracePresenter(capture_service)
-    simpleperf_presenter = simpleperf_presenter_module.SimpleperfPresenter(simpleperf_service)
-    perfetto_presenter = perfetto_presenter_module.PerfettoPresenter(perfetto_service)
+    simpleperf_presenter = simpleperf_presenter_module.SimpleperfPresenter(
+        simpleperf_service,
+        capture_service=capture_service,
+    )
+    perfetto_presenter = perfetto_presenter_module.PerfettoPresenter(
+        perfetto_service,
+        capture_service=capture_service,
+    )
     traceview_presenter = traceview_presenter_module.TraceviewPresenter(traceview_service)
     combo_presenter = combo_presenter_module.ComboPresenter(combo_service)
 

@@ -216,6 +216,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._current_device_serial(),
             self.config_service.output_dir,
         )
+        panel.set_auxiliary_options(self.device_toolbar.output_options())
         self.systrace_panel = panel
         return panel
 
@@ -227,6 +228,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._current_device_serial(),
             self.config_service.output_dir,
         )
+        panel.set_auxiliary_options(self.device_toolbar.output_options())
         self.perfetto_panel = panel
         return panel
 
@@ -238,6 +240,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._current_device_serial(),
             self.config_service.output_dir,
         )
+        panel.set_auxiliary_options(self.device_toolbar.output_options())
         self.simpleperf_panel = panel
         return panel
 
@@ -249,6 +252,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._current_device_serial(),
             self.config_service.output_dir,
         )
+        panel.set_auxiliary_options(self.device_toolbar.output_options())
         self.traceview_panel = panel
         return panel
 
@@ -260,6 +264,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._current_device_serial(),
             self.config_service.output_dir,
         )
+        panel.set_auxiliary_options(self.device_toolbar.output_options())
         self.combo_panel = panel
         return panel
 
@@ -429,36 +434,24 @@ class MainWindow(QtWidgets.QMainWindow):
         enabled = [name for name, flag in opts.items() if flag]
         self._log(f"附加输出选项: {', '.join(enabled) if enabled else 'None'}")
 
+        # Propagate auxiliary options to all panels
+        for panel in (
+            self.systrace_panel,
+            self.perfetto_panel,
+            self.simpleperf_panel,
+            self.traceview_panel,
+            self.combo_panel,
+        ):
+            if panel is not None and hasattr(panel, "set_auxiliary_options"):
+                panel.set_auxiliary_options(opts)
+
     def _apply_runtime_settings(self, adb_path: str, output_dir: str) -> None:
-        # Update adb path for device detection & all capture backends.
+        # Update adb path - all adapters share the same AdbHelper instance via device_service.
+        # Updating it once propagates to all.
         try:
             self.presenter.device_service.adb_adapter.adb_path = adb_path
         except Exception:
-            logger.exception("Failed to update adb path for device service")
-
-        try:
-            self.systrace_presenter.capture_service.systrace_adapter.adb_path = adb_path
-        except Exception:
-            logger.exception("Failed to update adb path for systrace")
-
-        try:
-            self.perfetto_presenter.perfetto_service.perfetto_adapter.adb_path = (
-                adb_path
-            )
-        except Exception:
-            logger.exception("Failed to update adb path for perfetto")
-
-        try:
-            self.simpleperf_presenter.simpleperf_service.simpleperf_adapter.adb_path = (
-                adb_path
-            )
-        except Exception:
-            logger.exception("Failed to update adb path for simpleperf")
-
-        try:
-            self.traceview_presenter.traceview_service.adapter.adb_path = adb_path
-        except Exception:
-            logger.exception("Failed to update adb path for traceview")
+            logger.exception("Failed to update adb path")
 
         # Update output dir defaults in services.
         try:

@@ -1,6 +1,6 @@
 import zlib
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 def test_strip_and_decompress_trace_handles_compressed_bytes():
@@ -29,6 +29,7 @@ def test_atrace_agent_preprocess_accepts_bytes_chunks():
         fix_tgids=False,
         fix_circular=False,
         device_serial="TEST_SERIAL",
+        adb_helper=None,
     )
 
     trace_text = "# tracer: nop\n# payload\n"
@@ -43,16 +44,17 @@ def test_atrace_agent_preprocess_accepts_bytes_chunks():
 def test_try_create_agent_passes_device_serial_to_sdk_lookup():
     from easy_tracer.framework.external.systrace.agents import atrace_agent
 
+    mock_adb = MagicMock()
+    mock_adb.get_sdk_version.return_value = 36
+
     options = SimpleNamespace(
         from_file=None,
         boot=False,
         device_serial="c8569b3d",
+        adb_helper=mock_adb,
     )
 
-    with patch.object(
-        atrace_agent.util, "get_device_sdk_version", return_value=36
-    ) as sdk_mock:
-        agent = atrace_agent.try_create_agent(options, categories=["sched"])
+    agent = atrace_agent.try_create_agent(options, categories=["sched"])
 
-    sdk_mock.assert_called_once_with("c8569b3d")
+    mock_adb.get_sdk_version.assert_called_once_with("c8569b3d")
     assert agent is not None

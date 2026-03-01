@@ -11,8 +11,8 @@ Architecture:
 Removed: Ftrace tab (dead code - UI allowed selection but start_capture never used it)
 """
 
-from typing import Optional
-from PySide6 import QtCore, QtWidgets
+from typing import Optional, Dict
+from PySide6 import QtCore, QtWidgets, QtGui
 from easy_tracer.presenters.systrace_presenter import SystracePresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
@@ -50,7 +50,7 @@ class SystracePanel(BasePanel):
     Layout:
     ┌─ CAPTURE CONFIGURATION ───────────────────────────────────┐
     │ Duration: [5s v]  Target: [Top App v]  Buffer: [10240 KB] │
-    │ [x] Create subfolder    [ ] Enhanced thread names         │
+    │ Output: [...output...]  [📂]   [ ] Enhanced thread names  │
     └───────────────────────────────────────────────────────────┘
     ┌─ TRACE CATEGORIES ────────────────────────────────────────┐
     │ [Filter...                           ] [12 of 45] [Refresh]│
@@ -72,6 +72,7 @@ class SystracePanel(BasePanel):
         self.device_serial = device_serial
         self.default_output_dir = default_output_dir
         self._auto_loaded_serial: Optional[str] = None
+        self._auxiliary_options: Dict[str, bool] = {}
 
         # Presenter update bridge
         self._update_emitter = _UpdateEmitter()
@@ -80,6 +81,10 @@ class SystracePanel(BasePanel):
 
         self._setup_ui()
         self.update_device(self.device_serial)
+
+    def set_auxiliary_options(self, options: Dict[str, bool]) -> None:
+        """Set auxiliary output options from main window."""
+        self._auxiliary_options = options
 
     def _setup_ui(self) -> None:
         layout = QtWidgets.QVBoxLayout(self)
@@ -153,26 +158,34 @@ class SystracePanel(BasePanel):
         self.buffer_spin.setSingleStep(1024)
         config_layout.addWidget(self.buffer_spin, 0, 5)
 
-        # Row 1: Output path
+        # Row 1: Output path with Open button
         config_layout.addWidget(QtWidgets.QLabel("Output:"), 1, 0)
+        output_widget = QtWidgets.QWidget()
+        output_layout = QtWidgets.QHBoxLayout(output_widget)
+        output_layout.setContentsMargins(0, 0, 0, 0)
+        output_layout.setSpacing(Spacing.SM)
+
         self.output_path = OutputPathWidget(
             self.default_output_dir,
             label="",
             editable=False,
             tooltip="Shared output directory. Edit in Settings panel.",
         )
-        config_layout.addWidget(self.output_path, 1, 1, 1, 3)
+        output_layout.addWidget(self.output_path, 1)
+
+        self.open_output_btn = QtWidgets.QPushButton("📂")
+        self.open_output_btn.setToolTip("Open output directory")
+        self.open_output_btn.setMaximumWidth(36)
+        self.open_output_btn.clicked.connect(self._on_open_output)
+        output_layout.addWidget(self.open_output_btn)
+
+        config_layout.addWidget(output_widget, 1, 1, 1, 3)
 
         # Options
         options_widget = QtWidgets.QWidget()
         options_layout = QtWidgets.QHBoxLayout(options_widget)
         options_layout.setContentsMargins(0, 0, 0, 0)
         options_layout.setSpacing(Spacing.LG)
-
-        self.subfolder_cb = QtWidgets.QCheckBox("Create subfolder")
-        self.subfolder_cb.setChecked(True)
-        self.subfolder_cb.setToolTip("Create a timestamped subfolder for each capture")
-        options_layout.addWidget(self.subfolder_cb)
 
         self.enhance_cb = QtWidgets.QCheckBox("Enhanced thread names")
         self.enhance_cb.setToolTip("Show detailed thread names in trace (may impact performance)")
@@ -207,6 +220,10 @@ class SystracePanel(BasePanel):
 
     def _toggle_custom_target(self, text: str) -> None:
         self.custom_target.setEnabled(text == "Custom Package")
+
+    def _on_open_output(self) -> None:
+        output_dir = self.output_path.output_dir()
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(output_dir))
 
     def _on_load_categories(self) -> None:
         if not self.device_serial or self.presenter.is_loading_categories:
@@ -335,7 +352,7 @@ class SystracePanel(BasePanel):
             self.buffer_spin.value(),
             self._get_target_app(),
             self.output_path.output_dir(),
-            self.subfolder_cb.isChecked(),
+            self._auxiliary_options,
         )
 
     def set_output_dir(self, output_dir: str) -> None:

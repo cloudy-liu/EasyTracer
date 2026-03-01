@@ -14,7 +14,6 @@ import argparse
 import os
 import sys
 
-from . import util
 from .agents import atrace_agent
 from .agents import android_process_data_agent
 

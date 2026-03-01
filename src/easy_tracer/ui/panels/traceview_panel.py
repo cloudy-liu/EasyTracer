@@ -1,5 +1,5 @@
-from typing import Optional
-from PySide6 import QtCore, QtWidgets
+from typing import Optional, Dict
+from PySide6 import QtCore, QtWidgets, QtGui
 from easy_tracer.presenters.traceview_presenter import TraceviewPresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
@@ -35,10 +35,6 @@ class TraceviewSettingsDialog(BaseSettingsDialog):
         self.cold_start_cb = QtWidgets.QCheckBox("Cold Start (force-stop)")
         self.add_widget(self.cold_start_cb)
 
-        self.subfolder_cb = QtWidgets.QCheckBox("Create subfolder")
-        self.subfolder_cb.setChecked(True)
-        self.add_widget(self.subfolder_cb)
-
         self.sample_radio.toggled.connect(self._toggle_sampling)
 
     def _toggle_sampling(self) -> None:
@@ -51,6 +47,7 @@ class TraceviewPanel(BasePanel):
         self.presenter = presenter
         self.device_serial = device_serial
         self.default_output_dir = default_output_dir
+        self._auxiliary_options: Dict[str, bool] = {}
         self._update_emitter = _UpdateEmitter()
         self._update_emitter.updated.connect(self.update_view)
         self.presenter.bind_view_update(self._update_emitter.updated.emit)
@@ -81,14 +78,17 @@ class TraceviewPanel(BasePanel):
 
         self.output_path = OutputPathWidget(
             default_output_dir,
-            label="Output (Settings):",
+            label="",
             editable=False,
             tooltip="Shared output directory. Edit it in Settings panel.",
         )
 
-        # --- Layout ---
-        # Single Row: Duration | Target | Output | Settings
+        self.open_output_btn = QtWidgets.QPushButton("📂")
+        self.open_output_btn.setToolTip("Open output directory")
+        self.open_output_btn.setMaximumWidth(36)
+        self.open_output_btn.clicked.connect(self._on_open_output)
 
+        # --- Layout ---
         main_row = QtWidgets.QHBoxLayout()
         main_row.addWidget(QtWidgets.QLabel("Duration:"))
         main_row.addWidget(self.duration_combo)
@@ -96,7 +96,9 @@ class TraceviewPanel(BasePanel):
         main_row.addWidget(QtWidgets.QLabel("Target:"))
         main_row.addWidget(self.target_combo)
         main_row.addWidget(self.target_input, 1)
+        main_row.addWidget(QtWidgets.QLabel("Output:"))
         main_row.addWidget(self.output_path, 1)
+        main_row.addWidget(self.open_output_btn)
         main_row.addWidget(self.settings_btn)
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -111,6 +113,14 @@ class TraceviewPanel(BasePanel):
 
     def _toggle_target_input(self, text: str) -> None:
         self.target_input.setEnabled(text == "自定义包名")
+
+    def set_auxiliary_options(self, options: Dict[str, bool]) -> None:
+        """Set auxiliary output options from main window."""
+        self._auxiliary_options = options
+
+    def _on_open_output(self) -> None:
+        output_dir = self.output_path.output_dir()
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(output_dir))
 
     def update_device(self, serial: Optional[str]) -> None:
         self.device_serial = serial
@@ -177,5 +187,4 @@ class TraceviewPanel(BasePanel):
             self.presenter.stop_tracing,
             self.device_serial,
             self.output_path.output_dir(),
-            self.settings_dialog.subfolder_cb.isChecked(),
         )

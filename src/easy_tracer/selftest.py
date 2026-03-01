@@ -117,7 +117,6 @@ def run_selftest(argv: list[str]) -> int:
                     buffer_size_kb=8192,
                     app_name=None,
                     output_dir=str(out_dir),
-                    create_subfolder=False,
                 )
             )
             _validate_systrace_html(sy_path)
@@ -139,7 +138,6 @@ def run_selftest(argv: list[str]) -> int:
                     buffer_size_kb=40 * 1024,
                     categories=["sched", "freq", "idle", "am", "wm", "view", "gfx"],
                     output_dir=str(out_dir),
-                    create_subfolder=False,
                 )
             )
             _validate_perfetto_trace(pf_path)

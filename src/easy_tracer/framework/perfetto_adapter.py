@@ -1,92 +1,94 @@
-import time
-from typing import List
+"""Perfetto trace recording adapter.
 
-from easy_tracer.framework import subprocess_utils
+Delegates all ADB operations to adb_helper for unified resource management.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+
+from easy_tracer.framework import adb_helper
+
+logger = logging.getLogger(__name__)
 
 
 class PerfettoAdapter:
-    def __init__(self, adb_path: str = "adb"):
-        self.adb_path = adb_path
+    def __init__(
+        self,
+        adb: adb_helper.AdbHelper | None = None,
+        adb_path: str = "adb",
+    ):
+        self.adb = adb if adb else adb_helper.AdbHelper(adb_path)
 
     def record_trace(
         self,
         device_serial: str,
         output_path: str,
         duration_seconds: int = 10,
-        categories: List[str] = None,
+        categories: list[str] | None = None,
         buffer_size_kb: int = 32768,
+        config_text: str | None = None,
     ) -> str:
-        """
-        Records a Perfetto trace on the device and pulls it to the local machine.
+        """Records a Perfetto trace on the device and pulls it to the local machine.
+
+        If config_text is provided, it will be used as the Perfetto configuration.
+        Otherwise, a simple command-line based trace will be recorded.
+
         Returns the local path to the trace file.
         """
-        if categories is None:
-            categories = [
-                "sched",
-                "gfx",
-                "view",
-                "wm",
-                "am",
-                "hal",
-                "res",
-                "dalvik",
-                "freq",
-                "idle",
-                "binder_driver",
-                "binder_lock",
-            ]
-
-        # Use standard /data/misc/perfetto-traces/ which is writable by shell/traced
-        # Avoids permission denied errors common in /data/local/tmp on newer Android versions
         device_output_path = f"/data/misc/perfetto-traces/trace_{int(time.time())}.perfetto-trace"
 
-        # Build config commands
-        # We'll use the simple command line arguments for perfetto instead of passing a full config file for now
-        # to keep it simple and robust.
+        if config_text:
+            self._record_with_config(device_serial, device_output_path, config_text)
+        else:
+            self._record_simple(device_serial, device_output_path, duration_seconds, categories, buffer_size_kb)
 
-        cmd = [
-            self.adb_path,
-            "-s",
-            device_serial,
-            "shell",
-            "perfetto",
-            "-o",
-            device_output_path,
-            "-t",
-            f"{duration_seconds}s",
-            "-b",
-            f"{buffer_size_kb}kb",
-        ]
-
-        # Append categories
-        cmd.extend(categories)
-
-        # 1. Start Capture
-        subprocess_utils.check_output(cmd)
-
-        # 2. Pull the file
-        pull_cmd = [
-            self.adb_path,
-            "-s",
-            device_serial,
-            "pull",
-            device_output_path,
-            output_path,
-        ]
-        subprocess_utils.check_output(pull_cmd)
-
-        # 3. Cleanup on device (best-effort)
-        cleanup_cmd = [
-            self.adb_path,
-            "-s",
-            device_serial,
-            "shell",
-            "rm",
-            device_output_path,
-        ]
-        try:
-            subprocess_utils.check_output(cleanup_cmd)
-        except RuntimeError:
-            pass
+        logger.info("Pulling trace from device...")
+        self.adb.pull_file(device_serial, device_output_path, output_path)
+        self.adb.remove_file(device_serial, device_output_path)
 
         return output_path
+
+    def _record_with_config(self, device_serial: str, device_output_path: str, config_text: str) -> None:
+        """Record trace using config file method."""
+        device_config_path = "/data/local/tmp/perfetto_cfg.pbtx"
+
+        logger.info("Pushing Perfetto config to device...")
+        self.adb.run_shell(
+            device_serial,
+            f"cat > {device_config_path} << 'EOFCONFIG'\n{config_text}\nEOFCONFIG"
+        )
+
+        logger.info("Starting Perfetto trace...")
+        self.adb.run_shell(
+            device_serial,
+            f"cat {device_config_path} | perfetto --txt -c - -o {device_output_path}"
+        )
+
+        self.adb.remove_file(device_serial, device_config_path)
+
+    def _record_simple(
+        self,
+        device_serial: str,
+        device_output_path: str,
+        duration_seconds: int,
+        categories: list[str] | None,
+        buffer_size_kb: int,
+    ) -> None:
+        """Record trace using simple command-line method."""
+        if categories is None:
+            categories = [
+                "sched", "gfx", "view", "wm", "am", "hal", "res",
+                "dalvik", "freq", "idle", "binder_driver", "binder_lock",
+            ]
+
+        cmd_parts = [
+            "perfetto",
+            "-o", device_output_path,
+            "-t", f"{duration_seconds}s",
+            "-b", f"{buffer_size_kb}kb",
+        ] + categories
+
+        logger.info(f"Starting Perfetto trace ({duration_seconds}s)...")
+        self.adb.run_shell(device_serial, *cmd_parts, timeout=duration_seconds + 30)

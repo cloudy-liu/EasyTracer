@@ -3,68 +3,66 @@ from unittest.mock import MagicMock, patch
 import os
 import sys
 
-# Add src to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 from easy_tracer.framework.traceview_adapter import TraceviewAdapter
+from easy_tracer.framework.adb_helper import AdbHelper
+
 
 class TestTraceviewAdapter(unittest.TestCase):
     def setUp(self):
-        self.adapter = TraceviewAdapter()
+        self.mock_adb = MagicMock(spec=AdbHelper)
+        self.mock_adb.run_shell.return_value = ""
+        self.adapter = TraceviewAdapter(adb=self.mock_adb)
 
-    @patch('subprocess.run')
-    def test_start_tracing_default(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
-
+    def test_start_tracing_default(self):
         device_serial = "123"
         package = "com.example"
 
         self.adapter.start_tracing(device_serial, package)
 
-        args = mock_run.call_args[0][0]
-        self.assertEqual(args[0], "adb")
-        self.assertEqual(args[3], "shell")
-        self.assertEqual(args[4], "am")
-        self.assertEqual(args[5], "profile")
-        self.assertEqual(args[6], "start")
-        self.assertIn(package, args)
+        self.mock_adb.run_shell.assert_called_once()
+        args = self.mock_adb.run_shell.call_args[0]
+        self.assertEqual(args[0], device_serial)
+
+        # Command args should contain am profile start
+        cmd_parts = args[1:]
+        self.assertIn("am", cmd_parts)
+        self.assertIn("profile", cmd_parts)
+        self.assertIn("start", cmd_parts)
+        self.assertIn(package, cmd_parts)
         # Verify no sampling flag
-        self.assertNotIn("--sampling", args)
+        self.assertNotIn("--sampling", cmd_parts)
 
-    @patch('subprocess.run')
-    def test_start_tracing_sampling(self, mock_run):
-        mock_run.return_value = MagicMock(returncode=0)
-
+    def test_start_tracing_sampling(self):
         self.adapter.start_tracing("123", "com.example", sampling=True, sampling_interval=1000)
 
-        args = mock_run.call_args[0][0]
-        self.assertIn("--sampling", args)
-        self.assertIn("1000", args)
+        args = self.mock_adb.run_shell.call_args[0]
+        cmd_parts = args[1:]
+        self.assertIn("--sampling", cmd_parts)
+        self.assertIn("1000", cmd_parts)
 
     @patch('time.sleep')
-    @patch('subprocess.run')
-    def test_stop_tracing_success(self, mock_run, mock_sleep):
-        mock_run.return_value = MagicMock(returncode=0)
-
+    def test_stop_tracing_success(self, mock_sleep):
         output_path = "trace.trace"
         path = self.adapter.stop_tracing("123", "com.example", output_path)
 
         self.assertEqual(path, output_path)
 
-        # Expected calls: stop, pull, rm
-        self.assertEqual(mock_run.call_count, 3)
+        # Verify run_shell called for stop command
+        stop_call = self.mock_adb.run_shell.call_args_list[0]
+        stop_args = stop_call[0]
+        self.assertEqual(stop_args[0], "123")
+        self.assertIn("stop", stop_args)
 
-        # 1. Stop
-        args1 = mock_run.call_args_list[0][0][0]
-        self.assertEqual(args1[6], "stop")
+        # Verify pull_file called
+        self.mock_adb.pull_file.assert_called_once()
+        pull_args = self.mock_adb.pull_file.call_args[0]
+        self.assertEqual(pull_args[2], output_path)
 
-        # 2. Pull
-        args2 = mock_run.call_args_list[1][0][0]
-        self.assertEqual(args2[3], "pull")
+        # Verify remove_file called for cleanup
+        self.mock_adb.remove_file.assert_called_once()
 
-        # 3. Cleanup
-        args3 = mock_run.call_args_list[2][0][0]
-        self.assertEqual(args3[4], "rm")
 
 if __name__ == '__main__':
     unittest.main()

@@ -5,16 +5,11 @@
 # Tracing agent that captures friendly process and thread data (names, pids,
 # tids) to enrich display in the trace viewer.
 #
-# NOTE:
-# This repo uses the legacy systrace agent interface (SystraceAgent). The file
-# was migrated down from a higher-version systrace that depended on
-# tracing_agents + devil.device_utils. This implementation is refactored to
-# match this repo's agent lifecycle and adb helpers (systrace.util).
+# ADB operations are delegated to adb_helper (injected via options.adb_helper).
 
 import sys
 
 from .. import systrace_agent
-from .. import util
 
 
 # Prefer modern ps with explicit columns, then thread ps. The importer expects
@@ -40,6 +35,7 @@ class AndroidProcessDataAgent(systrace_agent.SystraceAgent):
         super(AndroidProcessDataAgent, self).__init__(options, categories)
         self._trace_data = ""
         self._expect_trace = True
+        self._adb_helper = getattr(options, 'adb_helper', None)
 
     def start(self):
         # Snapshot at trace start to capture initial names.
@@ -64,8 +60,11 @@ class AndroidProcessDataAgent(systrace_agent.SystraceAgent):
 
     def _get_process_snapshot(self):
         serial = getattr(self._options, "device_serial", None)
+        if self._adb_helper is None:
+            sys.stderr.write("WARNING: adb_helper not available for process data.\n")
+            return ""
 
-        dump, ret_code = util.run_adb_shell([PS_COMMAND_PROC], serial)
+        dump, ret_code = self._adb_helper.run_shell_with_status(serial, PS_COMMAND_PROC)
         dump = "" if dump is None else str(dump)
         dump = dump.replace("\r", "")
 
@@ -74,7 +73,7 @@ class AndroidProcessDataAgent(systrace_agent.SystraceAgent):
         lines = dump.split("\n") if dump else []
         looks_like_failure = (ret_code != 0) or (len(lines) <= 2)
         if looks_like_failure:
-            dump2, ret_code2 = util.run_adb_shell([PS_COMMAND_PROC_LEGACY], serial)
+            dump2, ret_code2 = self._adb_helper.run_shell_with_status(serial, PS_COMMAND_PROC_LEGACY)
             dump2 = "" if dump2 is None else str(dump2)
             dump2 = dump2.replace("\r", "")
             lines2 = dump2.split("\n") if dump2 else []

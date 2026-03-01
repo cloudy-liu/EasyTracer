@@ -1,10 +1,23 @@
-from typing import Optional
-from PySide6 import QtCore, QtWidgets
+"""
+Perfetto Panel
+==============
+Configuration and control panel for Perfetto trace recording.
+
+Features:
+- Preset-based configuration (Standard, Graphics, Memory, Full, Custom)
+- Data source selection tabs
+- Atrace category selection
+- Auxiliary output options
+"""
+
+from typing import Optional, Dict
+from PySide6 import QtCore, QtWidgets, QtGui
 from easy_tracer.presenters.perfetto_presenter import PerfettoPresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
 from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.dialogs.base_settings_dialog import BaseSettingsDialog
+from easy_tracer.ui.theme import Spacing
 
 
 class _UpdateEmitter(QtCore.QObject):
@@ -16,7 +29,8 @@ class PerfettoSettingsDialog(BaseSettingsDialog):
         super().__init__(parent, "Perfetto Settings")
 
         self.buffer_combo = QtWidgets.QComboBox()
-        self.buffer_combo.addItems(["150 MB", "300 MB", "600 MB"])
+        self.buffer_combo.addItems(["32 MB", "64 MB", "150 MB", "300 MB"])
+        self.buffer_combo.setCurrentIndex(2)  # 150 MB default
         self.add_row("Buffer Size:", self.buffer_combo)
 
         self.write_period = QtWidgets.QSpinBox()
@@ -31,165 +45,350 @@ class PerfettoSettingsDialog(BaseSettingsDialog):
         self.flush_period.setSuffix(" ms")
         self.add_row("Flush Period:", self.flush_period)
 
-        self.subfolder_cb = QtWidgets.QCheckBox("Create subfolder")
-        self.subfolder_cb.setChecked(True)
-        self.add_widget(self.subfolder_cb)
-
 
 class PerfettoPanel(BasePanel):
+    """Perfetto trace recording panel.
+
+    Layout:
+    ┌─ CAPTURE SETTINGS ────────────────────────────────────────┐
+    │ Duration: [10s v]  Buffer: [150 MB v]                     │
+    │ Output: [...output...]  [📂]  [Settings]                  │
+    │ PRESETS: (Standard) (Graphics) (Memory) (Full) (Custom)   │
+    └───────────────────────────────────────────────────────────┘
+    ┌─ DATA SOURCES ────────────────────────────────────────────┐
+    │ [CPU/Sched] [GPU/Graphics] [Memory] [Power] [Misc]        │
+    └───────────────────────────────────────────────────────────┘
+    ┌─ ATRACE CATEGORIES ───────────────────────────────────────┐
+    │ Target Apps: [*                                         ] │
+    │ [x] gfx [x] view [x] wm [x] am [x] sched ...              │
+    └───────────────────────────────────────────────────────────┘
+    """
+
     def __init__(self, presenter: PerfettoPresenter, device_serial: Optional[str], default_output_dir: str):
         super().__init__()
         self.presenter = presenter
         self.device_serial = device_serial
         self.default_output_dir = default_output_dir
+        self._auxiliary_options: Dict[str, bool] = {}
+        self._current_preset: str = "standard"
         self._update_emitter = _UpdateEmitter()
         self._update_emitter.updated.connect(self.update_view)
         self.presenter.bind_view_update(self._update_emitter.updated.emit)
 
-        # --- Controls ---
+        self._setup_ui()
+        self.update_device(self.device_serial)
+
+    def _setup_ui(self) -> None:
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(Spacing.MD, Spacing.MD, Spacing.MD, Spacing.MD)
+        layout.setSpacing(Spacing.MD)
+
+        # =====================================================================
+        # CAPTURE SETTINGS GROUP
+        # =====================================================================
+        settings_group = QtWidgets.QGroupBox("Capture Settings")
+        settings_layout = QtWidgets.QVBoxLayout(settings_group)
+        settings_layout.setContentsMargins(Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD)
+        settings_layout.setSpacing(Spacing.SM)
+
+        # Row 1: Duration, Buffer, Mode
+        row1 = QtWidgets.QHBoxLayout()
+        row1.setSpacing(Spacing.LG)
+
+        row1.addWidget(QtWidgets.QLabel("Duration:"))
+        self.duration_combo = QtWidgets.QComboBox()
+        self.duration_combo.addItems(["5s", "10s", "30s", "60s", "5min", "10min"])
+        self.duration_combo.setCurrentIndex(1)  # 10s default
+        row1.addWidget(self.duration_combo)
+
+        row1.addWidget(QtWidgets.QLabel("Mode:"))
         self.normal_radio = QtWidgets.QRadioButton("Normal")
         self.long_radio = QtWidgets.QRadioButton("Long")
         self.normal_radio.setChecked(True)
-        self.normal_radio.toggled.connect(self._toggle_long_fields)
+        row1.addWidget(self.normal_radio)
+        row1.addWidget(self.long_radio)
 
-        self.duration_combo = QtWidgets.QComboBox()
-        self.duration_combo.addItems(["10s", "30s", "60s", "10min"])
+        row1.addStretch()
+        settings_layout.addLayout(row1)
 
-        # --- Settings Dialog ---
+        # Row 2: Output path
+        row2 = QtWidgets.QHBoxLayout()
+        row2.setSpacing(Spacing.SM)
+
+        row2.addWidget(QtWidgets.QLabel("Output:"))
+        self.output_path = OutputPathWidget(
+            self.default_output_dir,
+            label="",
+            editable=False,
+            tooltip="Shared output directory. Edit in Settings panel.",
+        )
+        row2.addWidget(self.output_path, 1)
+
+        self.open_output_btn = QtWidgets.QPushButton("📂")
+        self.open_output_btn.setToolTip("Open output directory")
+        self.open_output_btn.setMaximumWidth(36)
+        self.open_output_btn.clicked.connect(self._on_open_output)
+        row2.addWidget(self.open_output_btn)
+
         self.settings_dialog = PerfettoSettingsDialog(self)
         self.settings_btn = QtWidgets.QPushButton("Settings")
         self.settings_btn.clicked.connect(self.settings_dialog.exec)
+        row2.addWidget(self.settings_btn)
 
-        # --- Trace Categories ---
-        self.atrace_list = QtWidgets.QListWidget()
-        self.atrace_list.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
-        self._init_atrace_list()
+        settings_layout.addLayout(row2)
 
-        self.ftrace_list = QtWidgets.QListWidget()
-        self.ftrace_list.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
-        self._init_ftrace_list()
+        # Row 3: Presets
+        preset_layout = QtWidgets.QHBoxLayout()
+        preset_layout.setSpacing(Spacing.SM)
+        preset_layout.addWidget(QtWidgets.QLabel("Presets:"))
 
-        self.atrace_app = QtWidgets.QLineEdit()
-        self.atrace_app.setPlaceholderText("Apps (*)")
+        self.preset_group = QtWidgets.QButtonGroup(self)
+        self._standard_preset_btn: Optional[QtWidgets.QRadioButton] = None
+        presets = [
+            ("standard", "Standard", "Basic CPU scheduling and atrace"),
+            ("graphics", "Graphics", "Standard + SurfaceFlinger + GPU"),
+            ("memory", "Memory", "Standard + memory tracking"),
+            ("full", "Full", "All data sources"),
+            ("custom", "Custom", "Manual configuration"),
+        ]
+        for preset_id, label, tooltip in presets:
+            btn = QtWidgets.QRadioButton(label)
+            btn.setToolTip(tooltip)
+            btn.setProperty("preset_id", preset_id)
+            self.preset_group.addButton(btn)
+            preset_layout.addWidget(btn)
+            if preset_id == "standard":
+                self._standard_preset_btn = btn
 
-        # --- Tabs ---
+        preset_layout.addStretch()
+        settings_layout.addLayout(preset_layout)
+
+        layout.addWidget(settings_group)
+
+        # =====================================================================
+        # DATA SOURCES GROUP
+        # =====================================================================
+        sources_group = QtWidgets.QGroupBox("Data Sources")
+        sources_layout = QtWidgets.QVBoxLayout(sources_group)
+        sources_layout.setContentsMargins(Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD)
+
         self.data_tabs = QtWidgets.QTabWidget()
-        self.data_tabs.addTab(self._build_core_tab(), "Core")
-        self.data_tabs.addTab(self._build_gpu_tab(), "GPU")
+        self.data_tabs.addTab(self._build_core_tab(), "CPU/Sched")
+        self.data_tabs.addTab(self._build_gpu_tab(), "GPU/Graphics")
         self.data_tabs.addTab(self._build_memory_tab(), "Memory")
         self.data_tabs.addTab(self._build_power_tab(), "Power")
         self.data_tabs.addTab(self._build_misc_tab(), "Misc")
+        sources_layout.addWidget(self.data_tabs)
 
-        self.output_path = OutputPathWidget(
-            default_output_dir,
-            label="Output (Settings):",
-            editable=False,
-            tooltip="Shared output directory. Edit it in Settings panel.",
-        )
+        layout.addWidget(sources_group)
 
-        # --- Layout ---
-        # Top Row: Duration | Normal/Long | Output | Settings
-        top_layout = QtWidgets.QHBoxLayout()
-        top_layout.addWidget(QtWidgets.QLabel("Duration:"))
-        top_layout.addWidget(self.duration_combo)
-        top_layout.addWidget(QtWidgets.QLabel("Mode:"))
-        top_layout.addWidget(self.normal_radio)
-        top_layout.addWidget(self.long_radio)
-        top_layout.addWidget(self.output_path, 1) # Give output path stretch
-        top_layout.addWidget(self.settings_btn)
+        # =====================================================================
+        # ATRACE CATEGORIES GROUP
+        # =====================================================================
+        atrace_group = QtWidgets.QGroupBox("Atrace Categories")
+        atrace_layout = QtWidgets.QVBoxLayout(atrace_group)
+        atrace_layout.setContentsMargins(Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD)
+        atrace_layout.setSpacing(Spacing.SM)
 
-        # Sources Area
-        atrace_layout = QtWidgets.QVBoxLayout()
-        atrace_layout.addWidget(QtWidgets.QLabel("Atrace Cats"))
-        atrace_layout.addWidget(self.atrace_list)
-        atrace_layout.addWidget(self.atrace_app)
+        # Target apps
+        app_row = QtWidgets.QHBoxLayout()
+        app_row.addWidget(QtWidgets.QLabel("Target Apps:"))
+        self.atrace_app = QtWidgets.QLineEdit()
+        self.atrace_app.setPlaceholderText("* (all apps)")
+        self.atrace_app.setText("*")
+        app_row.addWidget(self.atrace_app, 1)
+        atrace_layout.addLayout(app_row)
 
-        ftrace_layout = QtWidgets.QVBoxLayout()
-        ftrace_layout.addWidget(QtWidgets.QLabel("Ftrace Events"))
-        ftrace_layout.addWidget(self.ftrace_list)
+        # Category checkboxes
+        self.atrace_checkboxes: Dict[str, QtWidgets.QCheckBox] = {}
+        categories = [
+            ("gfx", "Graphics"), ("input", "Input"), ("view", "View"),
+            ("wm", "Window Manager"), ("am", "Activity Manager"), ("sched", "Scheduler"),
+            ("freq", "CPU Freq"), ("idle", "CPU Idle"), ("dalvik", "Dalvik VM"),
+            ("binder_driver", "Binder Driver"), ("binder_lock", "Binder Lock"),
+            ("hal", "HAL"), ("res", "Resources"), ("webview", "WebView"),
+            ("network", "Network"), ("audio", "Audio"), ("video", "Video"),
+            ("camera", "Camera"),
+        ]
 
-        sources_layout = QtWidgets.QHBoxLayout()
-        sources_layout.addLayout(atrace_layout, 1)
-        sources_layout.addLayout(ftrace_layout, 1)
+        cat_grid = QtWidgets.QGridLayout()
+        cat_grid.setSpacing(Spacing.SM)
+        cols = 6
+        for i, (cat_id, cat_label) in enumerate(categories):
+            cb = QtWidgets.QCheckBox(cat_id)
+            cb.setToolTip(cat_label)
+            self.atrace_checkboxes[cat_id] = cb
+            cat_grid.addWidget(cb, i // cols, i % cols)
 
-        # Main Layout
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.addLayout(top_layout)
-        layout.addWidget(self.data_tabs, 1)
-        layout.addLayout(sources_layout, 1)
+        atrace_layout.addLayout(cat_grid)
+        layout.addWidget(atrace_group)
 
-        self._toggle_long_fields()
-        self.update_device(self.device_serial)
+        # Connect preset buttons AFTER all UI is created
+        for btn in self.preset_group.buttons():
+            preset_id = btn.property("preset_id")
+            btn.toggled.connect(lambda checked, p=preset_id: self._on_preset_toggled(checked, p))
 
-    def _init_atrace_list(self):
-        cats = ["gfx", "input", "view", "wm", "am", "sched", "freq", "idle",
-                "dalvik", "binder_driver", "binder_lock", "hal", "res", "webview", "network"]
-        for cat in cats:
-            item = QtWidgets.QListWidgetItem(cat)
-            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
-            item.setCheckState(QtCore.Qt.Checked)
-            self.atrace_list.addItem(item)
-
-    def _init_ftrace_list(self):
-        evts = ["sched/sched_switch", "sched/sched_wakeup", "power/cpu_frequency",
-                "power/cpu_idle", "task/task_newtask", "task/task_rename"]
-        for evt in evts:
-            item = QtWidgets.QListWidgetItem(evt)
-            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
-            item.setCheckState(QtCore.Qt.Checked)
-            self.ftrace_list.addItem(item)
+        # Set default preset and apply it
+        if self._standard_preset_btn:
+            self._standard_preset_btn.setChecked(True)
+        self._apply_preset("standard")
 
     def _build_core_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
-        layout.addWidget(QtWidgets.QCheckBox("linux.ftrace"))
-        layout.addWidget(QtWidgets.QCheckBox("linux.process_stats"))
-        layout.addWidget(QtWidgets.QCheckBox("linux.sys_stats"))
-        layout.addWidget(QtWidgets.QCheckBox("linux.system_info"))
+        layout.setSpacing(Spacing.SM)
+
+        self.ds_ftrace = QtWidgets.QCheckBox("linux.ftrace (CPU scheduling, system events)")
+        self.ds_process_stats = QtWidgets.QCheckBox("linux.process_stats (Process memory, CPU)")
+        self.ds_sys_stats = QtWidgets.QCheckBox("linux.sys_stats (System-wide memory info)")
+        self.ds_system_info = QtWidgets.QCheckBox("linux.system_info (Kernel version, CPU info)")
+
+        layout.addWidget(self.ds_ftrace)
+        layout.addWidget(self.ds_process_stats)
+        layout.addWidget(self.ds_sys_stats)
+        layout.addWidget(self.ds_system_info)
         layout.addStretch(1)
         return widget
 
     def _build_gpu_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
-        layout.addWidget(QtWidgets.QCheckBox("android.surfaceflinger.frametimeline"))
-        layout.addWidget(QtWidgets.QCheckBox("android.surfaceflinger.frame"))
-        layout.addWidget(QtWidgets.QCheckBox("android.gpu.memory"))
-        layout.addWidget(QtWidgets.QCheckBox("android.gpu.work"))
+        layout.setSpacing(Spacing.SM)
+
+        self.ds_surfaceflinger = QtWidgets.QCheckBox("android.surfaceflinger.frametimeline (Frame timing)")
+        self.ds_gpu_memory = QtWidgets.QCheckBox("android.gpu.memory (GPU memory usage)")
+        self.ds_gpu_work = QtWidgets.QCheckBox("android.gpu.work (GPU workload)")
+
+        layout.addWidget(self.ds_surfaceflinger)
+        layout.addWidget(self.ds_gpu_memory)
+        layout.addWidget(self.ds_gpu_work)
         layout.addStretch(1)
         return widget
 
     def _build_memory_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
-        layout.addWidget(QtWidgets.QCheckBox("android.heapprofd"))
-        layout.addWidget(QtWidgets.QCheckBox("android.java_hprof"))
-        layout.addWidget(QtWidgets.QCheckBox("linux.kmem_activity"))
+        layout.setSpacing(Spacing.SM)
+
+        self.ds_heapprofd = QtWidgets.QCheckBox("android.heapprofd (Native heap profiling)")
+        self.ds_java_hprof = QtWidgets.QCheckBox("android.java_hprof (Java heap dump)")
+
+        layout.addWidget(self.ds_heapprofd)
+        layout.addWidget(self.ds_java_hprof)
         layout.addStretch(1)
         return widget
 
     def _build_power_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
-        layout.addWidget(QtWidgets.QCheckBox("android.power"))
-        layout.addWidget(QtWidgets.QCheckBox("linux.perf"))
+        layout.setSpacing(Spacing.SM)
+
+        self.ds_power = QtWidgets.QCheckBox("android.power (Power rail monitoring)")
+        self.ds_perf = QtWidgets.QCheckBox("linux.perf (CPU performance counters)")
+
+        layout.addWidget(self.ds_power)
+        layout.addWidget(self.ds_perf)
         layout.addStretch(1)
         return widget
 
     def _build_misc_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
-        layout.addWidget(QtWidgets.QCheckBox("android.packages_list"))
-        layout.addWidget(QtWidgets.QCheckBox("android.log"))
-        layout.addWidget(QtWidgets.QCheckBox("android.network_packets"))
-        layout.addWidget(QtWidgets.QCheckBox("track_event"))
+        layout.setSpacing(Spacing.SM)
+
+        self.ds_packages_list = QtWidgets.QCheckBox("android.packages_list (Installed packages)")
+        self.ds_android_log = QtWidgets.QCheckBox("android.log (Logcat integration)")
+        self.ds_network = QtWidgets.QCheckBox("android.network_packets (Network traffic)")
+
+        layout.addWidget(self.ds_packages_list)
+        layout.addWidget(self.ds_android_log)
+        layout.addWidget(self.ds_network)
         layout.addStretch(1)
         return widget
 
-    def _toggle_long_fields(self) -> None:
-        is_long = self.long_radio.isChecked()
-        self.settings_dialog.write_period.setEnabled(is_long)
-        self.settings_dialog.flush_period.setEnabled(is_long)
+    def _on_preset_toggled(self, checked: bool, preset_id: str) -> None:
+        if checked:
+            self._apply_preset(preset_id)
+
+    def _apply_preset(self, preset_id: str) -> None:
+        """Apply a preset configuration."""
+        self._current_preset = preset_id
+
+        # Preset configurations
+        presets = {
+            "standard": {
+                "ds": {"ftrace": True, "process_stats": True, "sys_stats": False,
+                       "system_info": False, "surfaceflinger": False, "gpu_memory": False,
+                       "gpu_work": False, "heapprofd": False, "java_hprof": False,
+                       "power": False, "perf": False, "packages_list": False,
+                       "android_log": False, "network": False},
+                "atrace": ["sched", "freq", "idle", "am", "wm", "gfx", "view",
+                          "input", "dalvik", "binder_driver", "binder_lock"],
+            },
+            "graphics": {
+                "ds": {"ftrace": True, "process_stats": True, "sys_stats": False,
+                       "system_info": False, "surfaceflinger": True, "gpu_memory": True,
+                       "gpu_work": False, "heapprofd": False, "java_hprof": False,
+                       "power": False, "perf": False, "packages_list": False,
+                       "android_log": False, "network": False},
+                "atrace": ["sched", "freq", "idle", "am", "wm", "gfx", "view",
+                          "input", "dalvik", "binder_driver", "binder_lock", "hal", "res"],
+            },
+            "memory": {
+                "ds": {"ftrace": True, "process_stats": True, "sys_stats": True,
+                       "system_info": False, "surfaceflinger": False, "gpu_memory": False,
+                       "gpu_work": False, "heapprofd": False, "java_hprof": False,
+                       "power": False, "perf": False, "packages_list": False,
+                       "android_log": False, "network": False},
+                "atrace": ["sched", "freq", "idle", "am", "wm", "gfx", "view", "dalvik"],
+            },
+            "full": {
+                "ds": {"ftrace": True, "process_stats": True, "sys_stats": True,
+                       "system_info": True, "surfaceflinger": True, "gpu_memory": True,
+                       "gpu_work": False, "heapprofd": False, "java_hprof": False,
+                       "power": False, "perf": False, "packages_list": True,
+                       "android_log": True, "network": False},
+                "atrace": ["sched", "freq", "idle", "am", "wm", "gfx", "view",
+                          "input", "dalvik", "binder_driver", "binder_lock",
+                          "hal", "res", "webview", "network", "audio", "video", "camera"],
+            },
+        }
+
+        if preset_id == "custom":
+            # Don't change anything, let user configure manually
+            return
+
+        config = presets.get(preset_id, presets["standard"])
+
+        # Apply data sources
+        ds = config["ds"]
+        self.ds_ftrace.setChecked(ds["ftrace"])
+        self.ds_process_stats.setChecked(ds["process_stats"])
+        self.ds_sys_stats.setChecked(ds["sys_stats"])
+        self.ds_system_info.setChecked(ds["system_info"])
+        self.ds_surfaceflinger.setChecked(ds["surfaceflinger"])
+        self.ds_gpu_memory.setChecked(ds["gpu_memory"])
+        self.ds_gpu_work.setChecked(ds["gpu_work"])
+        self.ds_heapprofd.setChecked(ds["heapprofd"])
+        self.ds_java_hprof.setChecked(ds["java_hprof"])
+        self.ds_power.setChecked(ds["power"])
+        self.ds_perf.setChecked(ds["perf"])
+        self.ds_packages_list.setChecked(ds["packages_list"])
+        self.ds_android_log.setChecked(ds["android_log"])
+        self.ds_network.setChecked(ds["network"])
+
+        # Apply atrace categories
+        atrace = config["atrace"]
+        for cat_id, cb in self.atrace_checkboxes.items():
+            cb.setChecked(cat_id in atrace)
+
+    def set_auxiliary_options(self, options: Dict[str, bool]) -> None:
+        """Set auxiliary output options from main window."""
+        self._auxiliary_options = options
+
+    def _on_open_output(self) -> None:
+        output_dir = self.output_path.output_dir()
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(output_dir))
 
     def update_device(self, serial: Optional[str]) -> None:
         self.device_serial = serial
@@ -218,12 +417,7 @@ class PerfettoPanel(BasePanel):
             self.status_message.emit(f"Trace saved to: {self.presenter.last_output_path}")
 
     def _selected_atrace_categories(self) -> list[str]:
-        selected = []
-        for i in range(self.atrace_list.count()):
-            item = self.atrace_list.item(i)
-            if item.checkState() == QtCore.Qt.Checked:
-                selected.append(item.text())
-        return selected
+        return [cat_id for cat_id, cb in self.atrace_checkboxes.items() if cb.isChecked()]
 
     def _duration_seconds(self) -> int:
         text = self.duration_combo.currentText()
@@ -239,6 +433,9 @@ class PerfettoPanel(BasePanel):
         if not self.is_ready():
             return
 
+        # Use preset if not custom
+        preset = None if self._current_preset == "custom" else self._current_preset
+
         run_in_thread(
             self.presenter.start_recording,
             self.device_serial,
@@ -246,5 +443,6 @@ class PerfettoPanel(BasePanel):
             self._buffer_kb(),
             self._selected_atrace_categories(),
             self.output_path.output_dir(),
-            self.settings_dialog.subfolder_cb.isChecked(),
+            self._auxiliary_options,
+            preset,
         )
