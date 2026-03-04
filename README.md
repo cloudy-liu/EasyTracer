@@ -1,10 +1,13 @@
-# EasyTracer 🚀
-
 <p align="center">
-  <img src="doc/assets/easytracer-logo-brand-guidelines.svg" alt="EasyTracer Logo" width="760" />
+  <img src="doc/assets/easytracer-logo-brand-guidelines.svg" alt="EasyTracer" width="760" />
 </p>
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white) ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6?logo=desktop&logoColor=white) ![GUI](https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white)
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20macOS%20%7C%20Linux-0078D6?logo=desktop&logoColor=white" alt="Platform" />
+  <img src="https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white" alt="GUI" />
+  <img src="https://img.shields.io/badge/CLI-Click-000000?logo=gnubash&logoColor=white" alt="CLI" />
+</p>
 
 EasyTracer 是一个面向 Android 性能分析场景的桌面 GUI 工具，统一封装了
 `Systrace`、`Perfetto`、`Simpleperf`、`Traceview` 等常用链路，降低抓取门槛，
