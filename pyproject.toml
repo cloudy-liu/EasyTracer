@@ -9,10 +9,12 @@ description = "A GUI for various performance tracing tools"
 requires-python = ">=3.10"
 dependencies = [
     "PySide6",
+    "click>=8.0",
 ]
 
 [project.scripts]
-easytracer = "easy_tracer.main:run"
+easytracer = "easy_tracer.cli.main:cli"
+easytracer-gui = "easy_tracer.main:run"
 
 [project.optional-dependencies]
 dev = [
@@ -20,6 +22,7 @@ dev = [
     "black",
     "mypy",
     "pytest",
+    "pyinstaller",
 ]
 
 [tool.setuptools.packages.find]
@@ -29,6 +32,8 @@ include = ["easy_tracer*"]
 [tool.setuptools.package-data]
 # Ensure vendored systrace HTML assets are available when installed as a package.
 "easy_tracer.framework.external.systrace" = ["*.html"]
+# Include icon assets.
+"easy_tracer.assets" = ["icons/*.svg", "icons/*.png"]
 
 [tool.ruff]
 line-length = 120
