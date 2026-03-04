@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <!-- Combo - layered/stacked traces icon -->
+  <path d="M4 6h16v2H4z" fill="#FF9800"/>
+  <path d="M4 11h16v2H4z" fill="#2196F3"/>
+  <path d="M4 16h16v2H4z" fill="#4CAF50"/>
+  <circle cx="19" cy="7" r="2" fill="#FF9800"/>
+  <circle cx="19" cy="12" r="2" fill="#2196F3"/>
+  <circle cx="19" cy="17" r="2" fill="#4CAF50"/>
+</svg>

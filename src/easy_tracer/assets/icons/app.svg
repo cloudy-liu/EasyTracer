@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- EasyTracer App Icon
+       Design: Trace waveform with brand colors (orange->blue->green)
+       on a clean background, representing performance tracing -->
+
+  <!-- Background: rounded square -->
+  <rect x="2" y="2" width="60" height="60" rx="12" fill="#faf9f5"/>
+  <rect x="2" y="2" width="60" height="60" rx="12" fill="none" stroke="#e5e4e0" stroke-width="1"/>
+
+  <!-- Trace waveform: orange -> blue -> green -->
+  <!-- Main signal line -->
+  <path
+    d="M10 38
+       L18 38
+       L22 28
+       L28 48
+       L34 24
+       L40 44
+       L44 32
+       L54 32"
+    fill="none"
+    stroke="#d97757"
+    stroke-width="4"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Blue segment -->
+  <path
+    d="M44 32 L50 32"
+    fill="none"
+    stroke="#6a9bcc"
+    stroke-width="4"
+    stroke-linecap="round"
+  />
+
+  <!-- Green segment -->
+  <path
+    d="M50 32 L54 32"
+    fill="none"
+    stroke="#788c5d"
+    stroke-width="4"
+    stroke-linecap="round"
+  />
+
+  <!-- Start/end dots -->
+  <circle cx="10" cy="38" r="3" fill="#d97757"/>
+  <circle cx="54" cy="32" r="3" fill="#788c5d"/>
+
+  <!-- Subtle grid lines for "trace viewer" feel -->
+  <line x1="10" y1="20" x2="54" y2="20" stroke="#e5e4e0" stroke-width="0.5"/>
+  <line x1="10" y1="44" x2="54" y2="44" stroke="#e5e4e0" stroke-width="0.5"/>
+</svg>

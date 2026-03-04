@@ -261,18 +261,18 @@ class CategoryItemWidget(QtWidgets.QWidget):
 # =============================================================================
 
 class CategorySelector(QtWidgets.QWidget):
-    """Complete category selection widget with flat list and presets.
+    """Complete category selection widget with dual-column list and presets.
 
     Layout:
     ┌─────────────────────────────────────────────────────────────┐
     │ [Filter options...] (12 of 45)      [Refresh from Device]   │
     │ Presets: (Minimal) (Graphics) (System) [Select All] [Clear] │
-    ├─────────────────────────────────────────────────────────────┤
-    │ ☑ adb           ADB                                         │
-    │ ☐ am            Activity Manager                            │
-    │ ☑ gfx           Graphics                                    │
-    │ ☐ view          View System                                 │
-    └─────────────────────────────────────────────────────────────┘
+    ├────────────────────────────┬────────────────────────────────┤
+    │ ☑ adb        ADB           │ ☐ mmc        eMMC commands     │
+    │ ☐ am         Activity Mgr  │ ☑ network    Network           │
+    │ ☑ gfx        Graphics      │ ☐ pm         Power Management  │
+    │ ☐ view       View System   │ ☐ sched      CPU Scheduling    │
+    └────────────────────────────┴────────────────────────────────┘
     """
 
     selection_changed = QtCore.Signal()
@@ -315,7 +315,7 @@ class CategorySelector(QtWidgets.QWidget):
         self._presets.preset_selected.connect(self._apply_preset)
         layout.addWidget(self._presets)
 
-        # Scroll area for the flat list
+        # Scroll area for dual-column list
         self._scroll = QtWidgets.QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QtWidgets.QFrame.Shape.StyledPanel)
@@ -329,10 +329,22 @@ class CategorySelector(QtWidgets.QWidget):
 
         self._list_container = QtWidgets.QWidget()
         self._list_container.setStyleSheet("background-color: transparent;")
-        self._list_layout = QtWidgets.QVBoxLayout(self._list_container)
-        self._list_layout.setContentsMargins(0, Spacing.XS, 0, Spacing.XS)
-        self._list_layout.setSpacing(0)
-        self._list_layout.addStretch()
+
+        # Dual-column layout using QHBoxLayout with two QVBoxLayouts
+        self._columns_layout = QtWidgets.QHBoxLayout(self._list_container)
+        self._columns_layout.setContentsMargins(0, Spacing.XS, 0, Spacing.XS)
+        self._columns_layout.setSpacing(Spacing.MD)
+
+        self._left_column = QtWidgets.QVBoxLayout()
+        self._left_column.setSpacing(0)
+        self._left_column.addStretch()
+
+        self._right_column = QtWidgets.QVBoxLayout()
+        self._right_column.setSpacing(0)
+        self._right_column.addStretch()
+
+        self._columns_layout.addLayout(self._left_column, 1)
+        self._columns_layout.addLayout(self._right_column, 1)
 
         self._scroll.setWidget(self._list_container)
         layout.addWidget(self._scroll, 1)
@@ -342,8 +354,22 @@ class CategorySelector(QtWidgets.QWidget):
         """Access the refresh button for external signal connection."""
         return self._refresh_btn
 
+    def _add_category_to_column(
+        self,
+        cat: str,
+        column: QtWidgets.QVBoxLayout,
+        default_selected: set[str],
+    ) -> None:
+        """Create and add a category item widget to the specified column."""
+        desc = CATEGORY_DESCRIPTIONS.get(cat, "")
+        item_widget = CategoryItemWidget(cat, desc)
+        item_widget.setChecked(cat in default_selected)
+        item_widget.state_changed.connect(self._on_selection_changed)
+        self._items[cat] = item_widget
+        column.insertWidget(column.count() - 1, item_widget)
+
     def set_categories(self, categories: list[str], default_selected: set[str]) -> None:
-        """Populate the selector with available categories in a flat list.
+        """Populate the selector with available categories in dual-column layout.
 
         Args:
             categories: List of category names from the device
@@ -355,30 +381,31 @@ class CategorySelector(QtWidgets.QWidget):
         for item in self._items.values():
             item.deleteLater()
         self._items.clear()
-        
-        # Remove the stretch at the end, we will add it back later
-        item = self._list_layout.takeAt(self._list_layout.count() - 1)
-        if item:
-            del item
 
-        # Create category items
-        for cat in self._all_categories:
-            desc = CATEGORY_DESCRIPTIONS.get(cat, "")
-            item_widget = CategoryItemWidget(cat, desc)
-            item_widget.setChecked(cat in default_selected)
-            item_widget.state_changed.connect(self._on_selection_changed)
-            
-            # Alternate row background colors (optional, implemented via style if needed)
-            # Keeping it transparent for now, on hover could add background.
-            
-            self._items[cat] = item_widget
-            self._list_layout.addWidget(item_widget)
+        # Remove stretches from both columns
+        self._clear_column(self._left_column)
+        self._clear_column(self._right_column)
 
-        # Add stretch at the end to push items up
-        self._list_layout.addStretch()
+        # Distribute categories across two columns
+        mid = (len(self._all_categories) + 1) // 2
+
+        for cat in self._all_categories[:mid]:
+            self._add_category_to_column(cat, self._left_column, default_selected)
+
+        for cat in self._all_categories[mid:]:
+            self._add_category_to_column(cat, self._right_column, default_selected)
 
         self._apply_filter(self._filter.text())
         self._update_counter()
+
+    def _clear_column(self, column: QtWidgets.QVBoxLayout) -> None:
+        """Remove all widgets from a column layout except the stretch."""
+        while column.count() > 0:
+            item = column.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            del item
+        column.addStretch()
 
     def get_selected(self) -> list[str]:
         """Return list of all selected category names."""
@@ -420,5 +447,7 @@ class CategorySelector(QtWidgets.QWidget):
             item.deleteLater()
         self._items.clear()
         self._all_categories.clear()
+        self._clear_column(self._left_column)
+        self._clear_column(self._right_column)
         self._counter.setText("0 of 0")
         self._filter.clear()

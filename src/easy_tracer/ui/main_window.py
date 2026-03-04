@@ -3,7 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Callable, List, Optional
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtWidgets, QtGui
+from easy_tracer.assets import load_icon
 from easy_tracer.models.device import Device
 from easy_tracer.presenters.main_presenter import MainPresenter
 from easy_tracer.presenters.systrace_presenter import SystracePresenter
@@ -54,6 +55,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._current_busy = False
 
         self.setWindowTitle("EasyTracer")
+        self.setWindowIcon(load_icon("app", size=64))
         self.resize(1100, 780)
 
         # Global record button: idle=record(green), busy=stop(red).
@@ -94,17 +96,18 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QSizePolicy.Expanding,
         )
         nav_items = [
-            ("Device", QtWidgets.QStyle.SP_ComputerIcon),
-            ("Systrace", QtWidgets.QStyle.SP_FileDialogDetailedView),
-            ("Perfetto", QtWidgets.QStyle.SP_ArrowRight),
-            ("Simpleperf", QtWidgets.QStyle.SP_ArrowUp),
-            ("Traceview", QtWidgets.QStyle.SP_FileDialogInfoView),
-            ("Combo", QtWidgets.QStyle.SP_BrowserReload),
-            ("Settings", QtWidgets.QStyle.SP_FileDialogContentsView),
-            ("About", QtWidgets.QStyle.SP_MessageBoxInformation),
+            ("Device", "device"),
+            ("Systrace", "systrace"),
+            ("Perfetto", "perfetto"),
+            ("Simpleperf", "simpleperf"),
+            ("Traceview", "traceview"),
+            ("Combo", "combo"),
+            ("Settings", "settings"),
+            ("About", "about"),
         ]
-        for label, icon in nav_items:
-            item = QtWidgets.QListWidgetItem(self.style().standardIcon(icon), label)
+        for label, icon_name in nav_items:
+            icon = load_icon(icon_name)
+            item = QtWidgets.QListWidgetItem(icon, label)
             self.nav_list.addItem(item)
 
         self.stack = QtWidgets.QStackedWidget()

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import atexit
 from pathlib import Path
-import subprocess
 import shutil
 import sys
 
@@ -17,6 +16,7 @@ if not getattr(sys, "frozen", False):
             sys.path.insert(0, str(src_dir))
 
 from PySide6 import QtWidgets
+from easy_tracer.assets import load_icon
 from easy_tracer.ui.theme import generate_app_stylesheet
 from easy_tracer.framework import adb_helper as adb_helper_module
 from easy_tracer.framework import systrace_adapter as systrace_adapter_module
@@ -80,6 +80,9 @@ def run() -> None:
     # Heavy service initialization is deferred to avoid blocking UI display
     # =========================================================================
     app = QtWidgets.QApplication(sys.argv)
+
+    # Set application icon
+    app.setWindowIcon(load_icon("app", size=64))
 
     # Apply global stylesheet for consistent visual design
     app.setStyleSheet(generate_app_stylesheet())
