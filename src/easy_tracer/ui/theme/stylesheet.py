@@ -266,7 +266,7 @@ def generate_app_stylesheet() -> str:
         }}
 
         QTabBar::tab {{
-            padding: {Spacing.MD}px {Spacing.LG}px;
+            padding: {Spacing.MD}px {Spacing.XL}px;
             border: 1px solid {Colors.NEUTRAL_300};
             border-bottom: none;
             border-top-left-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
@@ -304,8 +304,10 @@ def generate_app_stylesheet() -> str:
         }}
 
         QListWidget::item:selected {{
-            background-color: {Colors.PRIMARY_LIGHT};
-            color: {Colors.ON_PRIMARY};
+            background-color: #e3f2fd;
+            color: {Colors.NEUTRAL_900};
+            border: 1px solid {Colors.PRIMARY};
+            border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
         }}
 
         /* ===================================================================
@@ -328,8 +330,10 @@ def generate_app_stylesheet() -> str:
         }}
 
         QTreeWidget::item:selected {{
-            background-color: {Colors.PRIMARY_LIGHT};
-            color: {Colors.ON_PRIMARY};
+            background-color: #e3f2fd;
+            color: {Colors.NEUTRAL_900};
+            border: 1px solid {Colors.PRIMARY};
+            border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
         }}
 
         /* ===================================================================

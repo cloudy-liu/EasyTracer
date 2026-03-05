@@ -20,10 +20,14 @@ class Colors:
         widget.setStyleSheet(f"background-color: {Colors.PRIMARY};")
     """
 
-    # Brand / Primary
-    PRIMARY = "#1976d2"
-    PRIMARY_DARK = "#1565c0"
-    PRIMARY_LIGHT = "#42a5f5"
+    # Brand / Primary — Bright blue (CC Switch style)
+    PRIMARY = "#2196f3"
+    PRIMARY_DARK = "#1976d2"
+    PRIMARY_LIGHT = "#bbdefb"
+
+    # Accent — Orange action highlight
+    ACCENT = "#ff9800"
+    ACCENT_DARK = "#f57c00"
 
     # Semantic Actions
     SUCCESS = "#2e7d32"         # Record button idle state
@@ -42,9 +46,9 @@ class Colors:
 
     # Neutral Scale (grey)
     NEUTRAL_50 = "#fafafa"
-    NEUTRAL_100 = "#f5f5f5"     # Light background
-    NEUTRAL_200 = "#eeeeee"
-    NEUTRAL_300 = "#e0e0e0"     # Borders, dividers
+    NEUTRAL_100 = "#f8f9fa"     # Light background (cool tone)
+    NEUTRAL_200 = "#f0f2f5"
+    NEUTRAL_300 = "#e4e7eb"     # Borders, dividers (softer)
     NEUTRAL_400 = "#bdbdbd"     # Disabled text
     NEUTRAL_500 = "#9e9e9e"     # Placeholder text
     NEUTRAL_600 = "#757575"     # Secondary text
@@ -59,7 +63,7 @@ class Colors:
 
     # Surface Colors
     SURFACE = "#ffffff"
-    SURFACE_VARIANT = "#f5f5f5"
+    SURFACE_VARIANT = "#f8f9fa"
 
     # Text on colored backgrounds
     ON_PRIMARY = "#ffffff"
@@ -128,7 +132,7 @@ class Dimensions:
     BUTTON_RECORD_WIDTH = 96
     BUTTON_PADDING_H = 12
     BUTTON_PADDING_V = 4
-    BUTTON_BORDER_RADIUS = 4
+    BUTTON_BORDER_RADIUS = 8
 
     # Inputs
     INPUT_MIN_HEIGHT = 28
