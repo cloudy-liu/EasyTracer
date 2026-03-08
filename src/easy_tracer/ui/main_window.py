@@ -15,7 +15,7 @@ from easy_tracer.presenters.combo_presenter import ComboPresenter
 from easy_tracer.services.config_service import ConfigService
 from easy_tracer.ui.components.device_toolbar import DeviceToolbar
 from easy_tracer.ui.components.log_panel import LogPanel
-from easy_tracer.ui.theme import record_button_qss, Dimensions, Colors
+from easy_tracer.ui.theme import record_button_qss, Dimensions, Colors, Spacing, Typography
 from easy_tracer.ui import logging_bridge
 from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.panels.device_panel import DevicePanel
@@ -97,33 +97,56 @@ class MainWindow(QtWidgets.QMainWindow):
         self._capture_elapsed = 0
 
         self.nav_list = QtWidgets.QListWidget()
-        self.nav_list.setMinimumWidth(150)
+        self.nav_list.setMinimumWidth(160)
         self.nav_list.setSizePolicy(
             QtWidgets.QSizePolicy.Fixed,
             QtWidgets.QSizePolicy.Expanding,
         )
 
+        # Sidebar-specific styling: flat left-border indicator, no rounded frame.
+        self.nav_list.setStyleSheet(f"""
+            QListWidget {{
+                border: none;
+                border-right: 1px solid {Colors.NEUTRAL_300};
+                border-radius: 0;
+                background-color: {Colors.SURFACE};
+                outline: none;
+            }}
+            QListWidget::item {{
+                padding: {Spacing.MD}px {Spacing.XL}px;
+                border-left: 3px solid transparent;
+            }}
+            QListWidget::item:hover {{
+                background-color: {Colors.NEUTRAL_100};
+            }}
+            QListWidget::item:selected {{
+                background-color: #e3f2fd;
+                color: {Colors.PRIMARY_DARK};
+                font-weight: 600;
+                border-left: 3px solid {Colors.PRIMARY};
+            }}
+        """)
+
         # Build grouped navigation sidebar.
-        # Section headers are non-selectable label items; real entries map to
-        # stack indices via _nav_to_stack / _stack_to_nav.
+        # Tuples: (label, icon_name, stack_index).  Stack indices are fixed by
+        # the order in which widgets are added to QStackedWidget (see below).
         self._nav_to_stack: dict[int, int] = {}
         self._stack_to_nav: dict[int, int] = {}
         nav_sections = [
-            (None, [("Device", "device")]),
             ("Tracers", [
-                ("Systrace", "systrace"),
-                ("Perfetto", "perfetto"),
-                ("Simpleperf", "simpleperf"),
-                ("Traceview", "traceview"),
-                ("Combo", "combo"),
+                ("Systrace", "systrace", 1),
+                ("Perfetto", "perfetto", 2),
+                ("Simpleperf", "simpleperf", 3),
+                ("Traceview", "traceview", 4),
+                ("Combo", "combo", 5),
             ]),
             ("System", [
-                ("Settings", "settings"),
-                ("About", "about"),
+                ("Device", "device", 0),
+                ("Settings", "settings", 6),
+                ("About", "about", 7),
             ]),
         ]
         nav_row = 0
-        stack_idx = 0
         for section_title, items in nav_sections:
             if section_title:
                 header = QtWidgets.QListWidgetItem(f"  {section_title.upper()}")
@@ -135,21 +158,20 @@ class MainWindow(QtWidgets.QMainWindow):
                 header.setForeground(QtGui.QColor(Colors.NEUTRAL_500))
                 self.nav_list.addItem(header)
                 nav_row += 1
-            for label, icon_name in items:
+            for label, icon_name, stk_idx in items:
                 icon = load_icon(icon_name)
                 item = QtWidgets.QListWidgetItem(icon, label)
                 item.setData(QtCore.Qt.UserRole, label)
                 self.nav_list.addItem(item)
-                self._nav_to_stack[nav_row] = stack_idx
-                self._stack_to_nav[stack_idx] = nav_row
+                self._nav_to_stack[nav_row] = stk_idx
+                self._stack_to_nav[stk_idx] = nav_row
                 nav_row += 1
-                stack_idx += 1
 
         self.stack = QtWidgets.QStackedWidget()
 
         # Panels are created lazily to reduce cold-start time of the packaged EXE.
-        # Indices MUST match nav_list rows:
-        # 0 Device, 1 Systrace, 2 Perfetto, 3 Simpleperf, 4 Traceview, 5 Combo, 6 Settings, 7 About
+        # Stack indices: 0 Device, 1 Systrace, 2 Perfetto, 3 Simpleperf,
+        #                4 Traceview, 5 Combo, 6 Settings, 7 About
         self.device_panel = DevicePanel()
         self.systrace_panel = None
         self.perfetto_panel = None
@@ -177,7 +199,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stack.addWidget(self.about_panel)  # index 7
 
         self.nav_list.currentRowChanged.connect(self._on_nav_changed)
-        self.nav_list.setCurrentRow(0)
+        self.nav_list.setCurrentRow(self._stack_to_nav.get(0, 0))
 
         self.log_panel = LogPanel()
         self._qt_log_handler = logging_bridge.install_qt_logging(self.log_panel.append)

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import List, Optional
 from PySide6 import QtCore, QtWidgets
 from easy_tracer.models.device import Device
+from easy_tracer.ui.theme import Colors, Typography
 
 
 class DeviceToolbar(QtWidgets.QWidget):
@@ -19,6 +20,7 @@ class DeviceToolbar(QtWidgets.QWidget):
         )
 
         self.label = QtWidgets.QLabel("Device:")
+        self.label.setStyleSheet(f"font-weight: 600; color: {Colors.NEUTRAL_700};")
         self.combo = QtWidgets.QComboBox()
         self.combo.setMinimumWidth(220)
         self.combo.setMaximumWidth(360)
@@ -40,7 +42,11 @@ class DeviceToolbar(QtWidgets.QWidget):
 
         row2 = QtWidgets.QHBoxLayout()
         row2.setContentsMargins(0, 0, 0, 0)
-        row2.addWidget(QtWidgets.QLabel("抓取后附加输出:"))
+        aux_label = QtWidgets.QLabel("抓取后附加输出:")
+        aux_label.setStyleSheet(
+            f"font-size: {Typography.SIZE_CAPTION}px; color: {Colors.NEUTRAL_600};"
+        )
+        row2.addWidget(aux_label)
         row2.addWidget(self.logcat_cb)
         row2.addWidget(self.packages_cb)
         row2.addWidget(self.ps_cb)
