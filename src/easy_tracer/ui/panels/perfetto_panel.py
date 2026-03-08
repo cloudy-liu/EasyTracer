@@ -10,6 +10,7 @@ Features:
 - Auxiliary output options
 """
 
+import os
 from typing import Optional, Dict
 from PySide6 import QtCore, QtWidgets, QtGui
 from easy_tracer.framework.perfetto_config_builder import PerfettoConfig
@@ -17,6 +18,7 @@ from easy_tracer.models.requests import PerfettoRequest
 from easy_tracer.presenters.perfetto_presenter import PerfettoPresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
+from easy_tracer.ui.components.cards import ResultCard
 from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.dialogs.base_settings_dialog import BaseSettingsDialog
 from easy_tracer.ui.theme import Spacing
@@ -225,6 +227,14 @@ class PerfettoPanel(BasePanel):
         atrace_layout.addLayout(cat_grid)
         layout.addWidget(atrace_group)
 
+        # =====================================================================
+        # RESULT CARD
+        # =====================================================================
+        self.result_card = ResultCard()
+        self.result_card.open_output_clicked.connect(self._on_open_output)
+        self.result_card.view_trace_clicked.connect(self._on_view_in_perfetto)
+        layout.addWidget(self.result_card)
+
         # Connect preset buttons AFTER all UI is created
         for btn in self.preset_group.buttons():
             preset_id = btn.property("preset_id")
@@ -392,6 +402,9 @@ class PerfettoPanel(BasePanel):
         output_dir = self.output_path.output_dir()
         QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(output_dir))
 
+    def _on_view_in_perfetto(self) -> None:
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl("https://ui.perfetto.dev"))
+
     def update_device(self, serial: Optional[str]) -> None:
         self.device_serial = serial
         self.readiness_changed.emit(self.is_ready())
@@ -409,6 +422,7 @@ class PerfettoPanel(BasePanel):
         self.readiness_changed.emit(self.is_ready())
 
         if busy:
+            self.result_card.clear()
             self.status_message.emit("Recording trace... Please wait.")
         else:
             self.status_message.emit("Ready.")
@@ -417,6 +431,7 @@ class PerfettoPanel(BasePanel):
             self.error_message.emit(self.presenter.error_message)
         elif self.presenter.last_output_path:
             self.status_message.emit(f"Trace saved to: {self.presenter.last_output_path}")
+            self._show_result_card()
 
     def _selected_atrace_categories(self) -> list[str]:
         return [cat_id for cat_id, cb in self.atrace_checkboxes.items() if cb.isChecked()]
@@ -463,6 +478,23 @@ class PerfettoPanel(BasePanel):
             auxiliary_options=self._auxiliary_options,
         )
 
+    def _show_result_card(self) -> None:
+        path = self.presenter.last_output_path
+        if not path:
+            return
+        file_name = os.path.basename(path)
+        try:
+            size = os.path.getsize(path)
+            file_size = f"{size / (1024 * 1024):.1f} MB" if size >= 1024 * 1024 else f"{size / 1024:.0f} KB"
+        except Exception:
+            file_size = ""
+        self.result_card.show_result(
+            file_name=file_name,
+            file_size=file_size,
+            duration=f"{self._duration_seconds()}s",
+            show_perfetto_btn=True,
+        )
+
     def start_capture(self) -> None:
         if not self.is_ready():
             return
@@ -471,3 +503,4 @@ class PerfettoPanel(BasePanel):
             self.presenter.run_request,
             self._build_request(),
         )
+        self.capture_started.emit(self._duration_seconds())

@@ -89,6 +89,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.status_progress.setRange(0, 0)  # Indeterminate
         self.status_bar.addPermanentWidget(self.status_progress)
 
+        # Countdown timer drives determinate progress during timed captures.
+        self._countdown_timer = QtCore.QTimer()
+        self._countdown_timer.setInterval(1000)
+        self._countdown_timer.timeout.connect(self._on_countdown_tick)
+        self._capture_duration = 0
+        self._capture_elapsed = 0
+
         self.nav_list = QtWidgets.QListWidget()
         self.nav_list.setMinimumWidth(150)
         self.nav_list.setSizePolicy(
@@ -313,6 +320,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 current.busy_changed.disconnect(self._update_busy_state)
                 current.status_message.disconnect(self.status_bar.showMessage)
                 current.error_message.disconnect(self._show_error)
+                current.capture_started.disconnect(self._on_capture_started)
             except RuntimeError:
                 pass  # Already disconnected or destroyed
 
@@ -331,6 +339,7 @@ class MainWindow(QtWidgets.QMainWindow):
             new_panel.busy_changed.connect(self._update_busy_state)
             new_panel.status_message.connect(self.status_bar.showMessage)
             new_panel.error_message.connect(self._show_error)
+            new_panel.capture_started.connect(self._on_capture_started)
 
             # Initialize state from new panel
             self._update_start_button(new_panel.is_ready())
@@ -347,8 +356,32 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_busy_state(self, busy: bool) -> None:
         self._current_busy = busy
-        self.status_progress.setVisible(busy)
+        if busy and self._capture_duration > 0:
+            self.status_progress.setRange(0, self._capture_duration)
+            self.status_progress.setValue(0)
+            self.status_progress.setVisible(True)
+            self._countdown_timer.start()
+        elif busy:
+            self.status_progress.setRange(0, 0)
+            self.status_progress.setVisible(True)
+        else:
+            self._countdown_timer.stop()
+            self._capture_duration = 0
+            self._capture_elapsed = 0
+            self.status_progress.setVisible(False)
         self._update_record_button_state()
+
+    def _on_capture_started(self, duration: int) -> None:
+        self._capture_duration = duration
+        self._capture_elapsed = 0
+
+    def _on_countdown_tick(self) -> None:
+        self._capture_elapsed += 1
+        if self._capture_elapsed <= self._capture_duration:
+            self.status_progress.setValue(self._capture_elapsed)
+        self.status_bar.showMessage(
+            f"Recording... {self._capture_elapsed}s / {self._capture_duration}s"
+        )
 
     def _set_record_button_visuals(self, is_recording: bool) -> None:
         if is_recording:

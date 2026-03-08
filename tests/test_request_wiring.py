@@ -134,6 +134,7 @@ def test_perfetto_panel_start_capture_builds_perfetto_request(monkeypatch):
     panel._auxiliary_options = {"logcat": True}
     panel._current_preset = "custom"
     panel.output_path = SimpleNamespace(output_dir=lambda: "out")
+    panel.capture_started = MagicMock()
     panel.settings_dialog = SimpleNamespace(
         buffer_combo=_text_value("64 MB"),
         write_period=_spin_value(2500),
@@ -190,6 +191,7 @@ def test_combo_panel_start_capture_builds_combo_request(monkeypatch):
     panel.device_serial = "SER123"
     panel._auxiliary_options = {"logcat": True, "packages": False}
     panel.output_path = SimpleNamespace(output_dir=lambda: "combo-out")
+    panel.capture_started = MagicMock()
     panel.duration_spin = _spin_value(12)
     panel.perfetto_cb = _checkbox(True)
     panel.simpleperf_cb = _checkbox(True)

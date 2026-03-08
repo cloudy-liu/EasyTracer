@@ -18,6 +18,11 @@ class BasePanel(QtWidgets.QWidget):
     # Signal to report busy state (for progress bar)
     busy_changed = QtCore.Signal(bool)
 
+    # Signal emitted when capture begins, carrying the expected duration (seconds).
+    # MainWindow uses this to drive a determinate countdown progress bar.
+    # Panels that use manual stop (e.g. Traceview) should not emit this signal.
+    capture_started = QtCore.Signal(int)
+
     def __init__(self):
         super().__init__()
 

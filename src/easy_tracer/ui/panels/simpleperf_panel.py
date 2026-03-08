@@ -250,6 +250,7 @@ class SimpleperfPanel(BasePanel):
                     auxiliary_options=self._auxiliary_options,
                 ),
             )
+            self.capture_started.emit(self._duration_seconds())
             return
 
         app_name = self._target_package()
@@ -265,3 +266,4 @@ class SimpleperfPanel(BasePanel):
                 auxiliary_options=self._auxiliary_options,
             ),
         )
+        self.capture_started.emit(self._duration_seconds())

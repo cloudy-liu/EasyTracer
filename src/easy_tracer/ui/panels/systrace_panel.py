@@ -367,6 +367,7 @@ class SystracePanel(BasePanel):
                 auxiliary_options=self._auxiliary_options,
             ),
         )
+        self.capture_started.emit(self._get_duration())
 
     def set_output_dir(self, output_dir: str) -> None:
         self.output_path.set_output_dir(output_dir)

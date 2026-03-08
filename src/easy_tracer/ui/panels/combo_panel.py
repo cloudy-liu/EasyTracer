@@ -213,7 +213,9 @@ class ComboPanel(BasePanel):
         if not self.is_ready():
             return
 
+        request = self._build_request()
         run_in_thread(
             self.presenter.run_request,
-            self._build_request(),
+            request,
         )
+        self.capture_started.emit(request.duration_seconds)
