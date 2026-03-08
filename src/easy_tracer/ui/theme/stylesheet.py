@@ -186,7 +186,7 @@ def generate_app_stylesheet() -> str:
             border: 1px solid {Colors.NEUTRAL_300};
             border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
             background-color: {Colors.SURFACE};
-            min-height: 24px;
+            min-height: 28px;
         }}
 
         QComboBox:hover {{
@@ -198,14 +198,40 @@ def generate_app_stylesheet() -> str:
         }}
 
         QComboBox::drop-down {{
-            border: none;
-            width: 20px;
+            subcontrol-position: right center;
+            subcontrol-origin: padding;
+            width: 24px;
+            border-left: 1px solid {Colors.NEUTRAL_300};
+            border-top-right-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
+            border-bottom-right-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
+        }}
+
+        QComboBox::down-arrow {{
+            width: 10px;
+            height: 10px;
         }}
 
         QComboBox QAbstractItemView {{
             border: 1px solid {Colors.NEUTRAL_300};
+            border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
             background-color: {Colors.SURFACE};
             selection-background-color: {Colors.PRIMARY_LIGHT};
+            padding: {Spacing.SM}px;
+            outline: none;
+        }}
+
+        QComboBox QAbstractItemView::item {{
+            padding: {Spacing.SM}px {Spacing.MD}px;
+            min-height: 24px;
+        }}
+
+        QComboBox QAbstractItemView::item:hover {{
+            background-color: {Colors.NEUTRAL_100};
+        }}
+
+        QComboBox QAbstractItemView::item:selected {{
+            background-color: {Colors.PRIMARY_LIGHT};
+            color: {Colors.NEUTRAL_900};
         }}
 
         /* ===================================================================

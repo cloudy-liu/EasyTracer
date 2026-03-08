@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import List, Optional
 from PySide6 import QtCore, QtWidgets
 from easy_tracer.models.device import Device
-from easy_tracer.ui.theme import Colors, Typography
+from easy_tracer.ui.theme import Colors, Spacing, Typography
 
 
 class DeviceToolbar(QtWidgets.QWidget):
@@ -21,10 +21,14 @@ class DeviceToolbar(QtWidgets.QWidget):
 
         self.label = QtWidgets.QLabel("Device:")
         self.label.setStyleSheet(f"font-weight: 600; color: {Colors.NEUTRAL_700};")
+
         self.combo = QtWidgets.QComboBox()
         self.combo.setMinimumWidth(220)
         self.combo.setMaximumWidth(360)
-        self.combo.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        self.combo.setSizePolicy(
+            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed,
+        )
+
         self.refresh_button = QtWidgets.QPushButton("Refresh")
 
         self.logcat_cb = QtWidgets.QCheckBox("Logcat")
@@ -34,14 +38,18 @@ class DeviceToolbar(QtWidgets.QWidget):
         self.logcat_cb.setChecked(True)
         self.packages_cb.setChecked(True)
 
+        # Row 1: Device selector + Refresh (compact, left-aligned)
         row1 = QtWidgets.QHBoxLayout()
         row1.setContentsMargins(0, 0, 0, 0)
+        row1.setSpacing(Spacing.MD)
         row1.addWidget(self.label)
         row1.addWidget(self.combo)
         row1.addWidget(self.refresh_button)
 
+        # Row 2: Auxiliary output options (caption-size label)
         row2 = QtWidgets.QHBoxLayout()
         row2.setContentsMargins(0, 0, 0, 0)
+        row2.setSpacing(Spacing.MD)
         aux_label = QtWidgets.QLabel("抓取后附加输出:")
         aux_label.setStyleSheet(
             f"font-size: {Typography.SIZE_CAPTION}px; color: {Colors.NEUTRAL_600};"
@@ -55,6 +63,7 @@ class DeviceToolbar(QtWidgets.QWidget):
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(Spacing.SM)
         layout.addLayout(row1)
         layout.addLayout(row2)
 

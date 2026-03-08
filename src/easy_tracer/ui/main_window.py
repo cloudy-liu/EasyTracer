@@ -65,20 +65,40 @@ class MainWindow(QtWidgets.QMainWindow):
         self.record_button.setEnabled(False)
         self._set_record_button_visuals(is_recording=False)
 
-        # Toolbar
+        # Toolbar — single container so QToolBar doesn't spread items apart.
         self.toolbar = QtWidgets.QToolBar("Main Toolbar")
         self.toolbar.setMovable(False)
         self.toolbar.setFloatable(False)
+        self.toolbar.setStyleSheet(f"""
+            QToolBar {{
+                background-color: {Colors.NEUTRAL_100};
+                border-bottom: 1px solid {Colors.NEUTRAL_300};
+                spacing: 0;
+            }}
+        """)
         self.addToolBar(self.toolbar)
 
         self.device_toolbar = DeviceToolbar()
         self.device_toolbar.refresh_requested.connect(self.refresh_devices)
         self.device_toolbar.device_changed.connect(self._on_device_changed)
         self.device_toolbar.options_changed.connect(self._on_options_changed)
-        self.toolbar.addWidget(self.device_toolbar)
 
-        self.toolbar.addSeparator()
-        self.toolbar.addWidget(self.record_button)
+        toolbar_container = QtWidgets.QWidget()
+        tc_layout = QtWidgets.QHBoxLayout(toolbar_container)
+        tc_layout.setContentsMargins(Spacing.XL, Spacing.MD, Spacing.XL, Spacing.MD)
+        tc_layout.setSpacing(Spacing.LG)
+        tc_layout.addWidget(self.device_toolbar)
+
+        sep = QtWidgets.QFrame()
+        sep.setFrameShape(QtWidgets.QFrame.VLine)
+        sep.setFixedWidth(1)
+        sep.setFixedHeight(28)
+        sep.setStyleSheet(f"background-color: {Colors.NEUTRAL_300};")
+        tc_layout.addWidget(sep)
+
+        tc_layout.addWidget(self.record_button)
+        tc_layout.addStretch(1)
+        self.toolbar.addWidget(toolbar_container)
 
         # Status Bar
         self.status_bar = QtWidgets.QStatusBar()
