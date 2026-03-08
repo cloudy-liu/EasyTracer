@@ -133,6 +133,7 @@ class Dimensions:
     BUTTON_PADDING_H = 12
     BUTTON_PADDING_V = 4
     BUTTON_BORDER_RADIUS = 8
+    PRESET_BORDER_RADIUS = 16     # Pill shape for preset buttons
 
     # Inputs
     INPUT_MIN_HEIGHT = 28

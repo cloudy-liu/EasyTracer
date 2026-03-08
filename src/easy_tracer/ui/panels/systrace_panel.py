@@ -18,6 +18,7 @@ from easy_tracer.presenters.systrace_presenter import SystracePresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
 from easy_tracer.ui.components.category_selector import CategorySelector, PRESETS
+from easy_tracer.ui.components.cards import DeprecationBanner
 from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.theme import Colors, Spacing
 
@@ -91,6 +92,15 @@ class SystracePanel(BasePanel):
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(Spacing.MD, Spacing.MD, Spacing.MD, Spacing.MD)
         layout.setSpacing(Spacing.MD)
+
+        # =====================================================================
+        # DEPRECATION BANNER
+        # =====================================================================
+        self._deprecation = DeprecationBanner(
+            "Systrace is deprecated. Google recommends Perfetto for devices running Android 10+.",
+            link_text="Switch to Perfetto",
+        )
+        layout.addWidget(self._deprecation)
 
         # =====================================================================
         # CAPTURE CONFIGURATION GROUP

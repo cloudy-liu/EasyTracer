@@ -167,6 +167,16 @@ def generate_app_stylesheet() -> str:
             color: {Colors.NEUTRAL_500};
         }}
 
+        QLineEdit:read-only {{
+            background-color: {Colors.NEUTRAL_100};
+            color: {Colors.NEUTRAL_600};
+            border: 1px dashed {Colors.NEUTRAL_300};
+        }}
+
+        QLineEdit:read-only:hover {{
+            border-color: {Colors.NEUTRAL_400};
+        }}
+
         /* ===================================================================
          * COMBO BOX
          * =================================================================== */
@@ -449,7 +459,7 @@ def generate_app_stylesheet() -> str:
 # =============================================================================
 
 def preset_button_qss(selected: bool) -> str:
-    """Generate QSS for preset selection buttons (radio-style).
+    """Generate QSS for preset pill buttons.
 
     Args:
         selected: Whether this preset is currently active
@@ -463,8 +473,8 @@ def preset_button_qss(selected: bool) -> str:
                 background-color: {Colors.PRIMARY};
                 color: {Colors.ON_PRIMARY};
                 border: 1px solid {Colors.PRIMARY_DARK};
-                border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
-                padding: {Spacing.SM}px {Spacing.MD}px;
+                border-radius: {Dimensions.PRESET_BORDER_RADIUS}px;
+                padding: {Spacing.SM}px {Spacing.LG}px;
                 font-weight: 600;
             }}
             QPushButton:hover {{
@@ -477,8 +487,8 @@ def preset_button_qss(selected: bool) -> str:
             background-color: {Colors.SURFACE};
             color: {Colors.NEUTRAL_700};
             border: 1px solid {Colors.NEUTRAL_300};
-            border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
-            padding: {Spacing.SM}px {Spacing.MD}px;
+            border-radius: {Dimensions.PRESET_BORDER_RADIUS}px;
+            padding: {Spacing.SM}px {Spacing.LG}px;
         }}
         QPushButton:hover {{
             background-color: {Colors.NEUTRAL_100};
@@ -522,5 +532,58 @@ def selection_counter_qss() -> str:
             padding: 2px 8px;
             font-weight: 600;
             font-size: 11px;
+        }}
+    """
+
+
+# =============================================================================
+# BANNER / CARD STYLES
+# Reusable helpers for notice banners and result cards
+# =============================================================================
+
+def deprecation_banner_qss() -> str:
+    """Generate QSS for deprecation warning banners."""
+    return f"""
+        QFrame {{
+            background-color: #fff3e0;
+            border: 1px solid #ffe0b2;
+            border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
+        }}
+        QFrame QLabel {{
+            background: transparent;
+            border: none;
+            color: {Colors.WARNING_DARK};
+        }}
+    """
+
+
+def info_card_qss() -> str:
+    """Generate QSS for informational cards in sparse panels."""
+    return f"""
+        QFrame {{
+            background-color: {Colors.NEUTRAL_50};
+            border: 1px solid {Colors.NEUTRAL_200};
+            border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
+        }}
+        QFrame QLabel {{
+            background: transparent;
+            border: none;
+            color: {Colors.NEUTRAL_600};
+        }}
+    """
+
+
+def result_card_qss() -> str:
+    """Generate QSS for capture result summary cards."""
+    return f"""
+        QFrame {{
+            background-color: #e8f5e9;
+            border: 1px solid #c8e6c9;
+            border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
+        }}
+        QFrame QLabel {{
+            background: transparent;
+            border: none;
+            color: {Colors.NEUTRAL_700};
         }}
     """
