@@ -18,6 +18,7 @@ if not getattr(sys, "frozen", False):
 from PySide6 import QtWidgets
 from easy_tracer.assets import load_icon
 from easy_tracer.ui.theme import generate_app_stylesheet
+from easy_tracer.runtime import build_runtime_context, get_app_root
 from easy_tracer.framework import adb_helper as adb_helper_module
 from easy_tracer.framework import systrace_adapter as systrace_adapter_module
 from easy_tracer.framework import simpleperf_adapter as simpleperf_adapter_module
@@ -57,7 +58,7 @@ def _kill_adb_server(adb_path: str) -> None:
 def _get_app_root() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parents[3]
+    return get_app_root(__file__)
 
 
 def run() -> None:
@@ -102,48 +103,24 @@ def run() -> None:
     if not warmup:
         atexit.register(lambda: _kill_adb_server(config_service.adb_path))
 
-    # =========================================================================
-    # UNIFIED ADB HELPER - Single source of truth for all ADB operations
-    # =========================================================================
-    adb = adb_helper_module.AdbHelper(adb_path=config_service.adb_path)
-
-    # Adapters - share the same AdbHelper instance for unified resource management
-    systrace_adapter = systrace_adapter_module.SystraceAdapter(adb=adb)
-    simpleperf_adapter = simpleperf_adapter_module.SimpleperfAdapter(adb=adb)
-    perfetto_adapter = perfetto_adapter_module.PerfettoAdapter(adb=adb)
-    traceview_adapter = traceview_adapter_module.TraceviewAdapter(adb=adb)
-
-    # Services - lightweight wrappers
-    device_service = device_service_module.DeviceService(adb)
-    capture_service = capture_service_module.CaptureService(
-        systrace_adapter,
-        output_dir=config_service.output_dir,
-        adb_helper=adb,
-    )
-    simpleperf_service = simpleperf_service_module.SimpleperfService(simpleperf_adapter, output_dir=config_service.output_dir)
-    perfetto_service = perfetto_service_module.PerfettoService(perfetto_adapter, output_dir=config_service.output_dir)
-    traceview_service = traceview_service_module.TraceviewService(traceview_adapter, output_dir=config_service.output_dir)
-    combo_service = combo_service_module.ComboService(
-        systrace_service=capture_service,
-        simpleperf_service=simpleperf_service,
-        perfetto_service=perfetto_service,
-        traceview_service=traceview_service,
+    runtime = build_runtime_context(
+        adb_path=config_service.adb_path,
         output_dir=config_service.output_dir,
     )
 
     # Presenters - pass capture_service for auxiliary dump functionality
-    main_presenter = main_presenter_module.MainPresenter(device_service)
-    systrace_presenter = systrace_presenter_module.SystracePresenter(capture_service)
+    main_presenter = main_presenter_module.MainPresenter(runtime.device_service)
+    systrace_presenter = systrace_presenter_module.SystracePresenter(runtime.capture_service)
     simpleperf_presenter = simpleperf_presenter_module.SimpleperfPresenter(
-        simpleperf_service,
-        capture_service=capture_service,
+        runtime.simpleperf_service,
+        capture_service=runtime.capture_service,
     )
     perfetto_presenter = perfetto_presenter_module.PerfettoPresenter(
-        perfetto_service,
-        capture_service=capture_service,
+        runtime.perfetto_service,
+        capture_service=runtime.capture_service,
     )
-    traceview_presenter = traceview_presenter_module.TraceviewPresenter(traceview_service)
-    combo_presenter = combo_presenter_module.ComboPresenter(combo_service)
+    traceview_presenter = traceview_presenter_module.TraceviewPresenter(runtime.traceview_service)
+    combo_presenter = combo_presenter_module.ComboPresenter(runtime.combo_service)
 
     # Create and show window immediately
     window = main_window_module.MainWindow(

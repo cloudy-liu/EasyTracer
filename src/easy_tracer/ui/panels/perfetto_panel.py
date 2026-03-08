@@ -12,6 +12,8 @@ Features:
 
 from typing import Optional, Dict
 from PySide6 import QtCore, QtWidgets, QtGui
+from easy_tracer.framework.perfetto_config_builder import PerfettoConfig
+from easy_tracer.models.requests import PerfettoRequest
 from easy_tracer.presenters.perfetto_presenter import PerfettoPresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
@@ -429,20 +431,43 @@ class PerfettoPanel(BasePanel):
         text = self.settings_dialog.buffer_combo.currentText().replace("MB", "").strip()
         return int(text) * 1024
 
+    def _build_request(self) -> PerfettoRequest:
+        preset = None if self._current_preset == "custom" else self._current_preset
+        config = None
+
+        if preset is None:
+            config = PerfettoConfig(
+                duration_ms=self._duration_seconds() * 1000,
+                buffer_size_kb=self._buffer_kb(),
+                write_period_ms=self.settings_dialog.write_period.value(),
+                flush_period_ms=self.settings_dialog.flush_period.value(),
+                atrace_categories=self._selected_atrace_categories(),
+                enable_ftrace=self.ds_ftrace.isChecked(),
+                enable_process_stats=self.ds_process_stats.isChecked(),
+                enable_sys_stats=self.ds_sys_stats.isChecked(),
+                enable_system_info=self.ds_system_info.isChecked(),
+                enable_surfaceflinger=self.ds_surfaceflinger.isChecked(),
+                enable_gpu_memory=self.ds_gpu_memory.isChecked(),
+                enable_packages_list=self.ds_packages_list.isChecked(),
+                enable_android_log=self.ds_android_log.isChecked(),
+            )
+
+        return PerfettoRequest(
+            device_serial=self.device_serial or "",
+            duration_seconds=self._duration_seconds(),
+            buffer_size_kb=self._buffer_kb(),
+            categories=self._selected_atrace_categories(),
+            output_dir=self.output_path.output_dir(),
+            preset=preset,
+            config=config,
+            auxiliary_options=self._auxiliary_options,
+        )
+
     def start_capture(self) -> None:
         if not self.is_ready():
             return
 
-        # Use preset if not custom
-        preset = None if self._current_preset == "custom" else self._current_preset
-
         run_in_thread(
-            self.presenter.start_recording,
-            self.device_serial,
-            self._duration_seconds(),
-            self._buffer_kb(),
-            self._selected_atrace_categories(),
-            self.output_path.output_dir(),
-            self._auxiliary_options,
-            preset,
+            self.presenter.run_request,
+            self._build_request(),
         )

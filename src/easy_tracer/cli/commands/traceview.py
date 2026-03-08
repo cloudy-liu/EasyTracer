@@ -11,6 +11,8 @@ import time
 import click
 
 from easy_tracer.cli.output import OutputContext, output_error, output_success, output_progress
+from easy_tracer.models.requests import TraceviewStartRequest
+from easy_tracer.runtime import resolve_target_device
 
 
 @click.command()
@@ -31,50 +33,47 @@ def traceview(
     output: str | None,
 ) -> None:
     """Method tracing with traceview."""
-    from easy_tracer.framework.adb_helper import AdbHelper
-    from easy_tracer.framework.traceview_adapter import TraceviewAdapter
-    from easy_tracer.services.traceview_service import TraceviewService
-
-    adb: AdbHelper = ctx.obj["adb"]
+    runtime = ctx.obj["runtime"]
+    adb = runtime.adb
     output_ctx: OutputContext = ctx.obj["output"]
-    output_dir: str = ctx.obj["output_dir"]
 
     if not adb.is_available():
         output_error("ADB not available.", output_ctx)
         ctx.exit(1)
 
-    device_serial = serial
-    if not device_serial:
-        devices = adb.list_devices()
-        if not devices:
-            output_error("No devices connected.", output_ctx)
-            ctx.exit(1)
-        device_serial = devices[0].serial
-        output_progress(f"Using device: {device_serial}", output_ctx)
+    try:
+        device_serial = resolve_target_device(adb.list_devices(), serial)
+    except RuntimeError as exc:
+        output_error(str(exc), output_ctx)
+        ctx.exit(1)
 
-    adapter = TraceviewAdapter(adb=adb)
-    service = TraceviewService(adapter, output_dir=output_dir)
+    if not serial:
+        output_progress(f"Using device: {device_serial}", output_ctx)
 
     mode = "sampling" if sampling else "method tracing"
     output_progress(f"Starting traceview ({duration}s, {mode})...", output_ctx)
 
     try:
-        service.start_tracing(device_serial, app, sampling, interval)
+        session = runtime.traceview_service.start_session(
+            TraceviewStartRequest(
+                device_serial=device_serial,
+                package_name=app,
+                sampling=sampling,
+                interval=interval,
+                output_dir=output,
+            )
+        )
         output_progress(f"Tracing started, waiting {duration}s...", output_ctx)
 
         time.sleep(duration)
 
-        output_path = service.stop_tracing(
-            device_serial=device_serial,
-            package_name=app,
-            output_dir=output,
-        )
+        result = session.stop(output_dir=output)
 
         if output_ctx.json_mode:
             from easy_tracer.cli.output import output_json
-            output_json({"status": "success", "output": output_path})
+            output_json({"status": "success", "output": result.output_path})
         else:
-            output_success(f"Trace saved: {output_path}", output_ctx)
+            output_success(f"Trace saved: {result.output_path}", output_ctx)
 
     except Exception as e:
         output_error(str(e), output_ctx)

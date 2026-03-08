@@ -7,6 +7,8 @@ import time
 
 from easy_tracer.framework import adb_helper as adb_helper_module
 from easy_tracer.framework import systrace_adapter as systrace_adapter_module
+from easy_tracer.models.requests import SystraceRequest
+from easy_tracer.models.results import CaptureResult
 
 logger = logging.getLogger(__name__)
 
@@ -43,16 +45,24 @@ class CaptureService:
         app_name: str | None = None,
         output_dir: str | None = None,
     ) -> str:
-        """
-        Starts a systrace capture.
-        Returns the path to the generated output file.
-        """
+        request = SystraceRequest(
+            device_serial=device_serial,
+            categories=categories,
+            duration_seconds=duration_seconds,
+            buffer_size_kb=buffer_size_kb,
+            app_name=app_name,
+            output_dir=output_dir,
+        )
+        return self.run(request).output_path
+
+    def run(self, request: SystraceRequest) -> CaptureResult:
+        """Run systrace using a shared request contract."""
         timestamp = time.strftime("%Y%m%d-%H%M%S")
-        model = self.systrace_adapter.get_device_model(device_serial) or device_serial
-        sdk = self.systrace_adapter.get_device_sdk_version(device_serial)
+        model = self.systrace_adapter.get_device_model(request.device_serial) or request.device_serial
+        sdk = self.systrace_adapter.get_device_sdk_version(request.device_serial)
         sdk_text = str(sdk) if sdk is not None else "unknown"
         filename = f"{self._sanitize_name(model)}_{sdk_text}_systrace_{timestamp}.html"
-        base_dir = output_dir or self.output_dir
+        base_dir = request.output_dir or self.output_dir
         if not os.path.exists(base_dir):
             os.makedirs(base_dir, exist_ok=True)
         output_path = os.path.join(base_dir, filename)
@@ -62,14 +72,28 @@ class CaptureService:
 
         self.systrace_adapter.run_systrace(
             output_file=output_path,
-            time_seconds=duration_seconds,
-            device_serial=device_serial,
-            categories=categories,
-            buffer_size_kb=buffer_size_kb,
-            app_name=app_name,
+            time_seconds=request.duration_seconds,
+            device_serial=request.device_serial,
+            categories=request.categories,
+            buffer_size_kb=request.buffer_size_kb,
+            app_name=request.app_name,
         )
 
-        return output_path
+        auxiliary_outputs = {}
+        if request.auxiliary_options:
+            prefix = output_path.rsplit(".", 1)[0] if "." in output_path else output_path
+            auxiliary_outputs = self.dump_auxiliary_logs(
+                device_serial=request.device_serial,
+                output_prefix=prefix,
+                options=request.auxiliary_options,
+            )
+
+        return CaptureResult(
+            tool="systrace",
+            output_path=output_path,
+            outputs={"trace": output_path},
+            auxiliary_outputs=auxiliary_outputs,
+        )
 
     @staticmethod
     def _sanitize_name(text: str) -> str:

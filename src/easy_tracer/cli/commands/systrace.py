@@ -10,6 +10,8 @@ from __future__ import annotations
 import click
 
 from easy_tracer.cli.output import OutputContext, output_error, output_success, output_progress
+from easy_tracer.models.requests import SystraceRequest
+from easy_tracer.runtime import resolve_target_device
 
 
 @click.command()
@@ -34,25 +36,21 @@ def systrace(
     output: str | None,
 ) -> None:
     """Capture systrace from an Android device."""
-    from easy_tracer.framework.adb_helper import AdbHelper
-    from easy_tracer.framework.systrace_adapter import SystraceAdapter
-    from easy_tracer.services.capture_service import CaptureService
-
-    adb: AdbHelper = ctx.obj["adb"]
+    runtime = ctx.obj["runtime"]
+    adb = runtime.adb
     output_ctx: OutputContext = ctx.obj["output"]
-    output_dir: str = ctx.obj["output_dir"]
 
     if not adb.is_available():
         output_error("ADB not available.", output_ctx)
         ctx.exit(1)
 
-    device_serial = serial
-    if not device_serial:
-        devices = adb.list_devices()
-        if not devices:
-            output_error("No devices connected.", output_ctx)
-            ctx.exit(1)
-        device_serial = devices[0].serial
+    try:
+        device_serial = resolve_target_device(adb.list_devices(), serial)
+    except RuntimeError as exc:
+        output_error(str(exc), output_ctx)
+        ctx.exit(1)
+
+    if not serial:
         output_progress(f"Using device: {device_serial}", output_ctx)
 
     category_list = [c.strip() for c in categories.split(",") if c.strip()]
@@ -60,27 +58,26 @@ def systrace(
         output_error("No categories specified.", output_ctx)
         ctx.exit(1)
 
-    adapter = SystraceAdapter(adb=adb)
-    service = CaptureService(adapter, output_dir=output_dir, adb_helper=adb)
-
     output_progress(f"Starting systrace capture ({duration}s)...", output_ctx)
     output_progress(f"Categories: {', '.join(category_list)}", output_ctx)
 
     try:
-        output_path = service.start_capture(
+        result = runtime.capture_service.run(
+            SystraceRequest(
             device_serial=device_serial,
             categories=category_list,
             duration_seconds=duration,
             buffer_size_kb=buffer,
             app_name=app,
             output_dir=output if output else None,
+            )
         )
 
         if output_ctx.json_mode:
             from easy_tracer.cli.output import output_json
-            output_json({"status": "success", "output": output_path})
+            output_json({"status": "success", "output": result.output_path})
         else:
-            output_success(f"Trace saved: {output_path}", output_ctx)
+            output_success(f"Trace saved: {result.output_path}", output_ctx)
 
     except Exception as e:
         output_error(str(e), output_ctx)

@@ -1,4 +1,6 @@
 from typing import Dict, Any, Optional, Callable
+
+from easy_tracer.models.requests import ComboRequest, PerfettoRequest, SimpleperfRequest, SystraceRequest, TraceviewStartRequest
 from easy_tracer.services.combo_service import ComboService
 
 class ComboPresenter:
@@ -25,12 +27,62 @@ class ComboPresenter:
         enabled_tools: Dict[str, bool],
         configs: Dict[str, Any]
     ):
-        if not device_serial:
+        package_name = configs.get("package_name")
+        output_dir = configs.get("output_dir")
+        request = ComboRequest(
+            device_serial=device_serial,
+            duration_seconds=duration,
+            output_dir=output_dir,
+            systrace=(
+                SystraceRequest(
+                    device_serial=device_serial,
+                    categories=configs.get("systrace_categories") or ["sched", "gfx", "view", "wm", "am"],
+                    duration_seconds=duration,
+                    buffer_size_kb=configs.get("systrace_buffer", 16384),
+                    app_name=package_name,
+                    output_dir=output_dir,
+                ) if enabled_tools.get("systrace") else None
+            ),
+            perfetto=(
+                PerfettoRequest(
+                    device_serial=device_serial,
+                    duration_seconds=duration,
+                    buffer_size_kb=configs.get("perfetto_buffer", 32768),
+                    categories=configs.get("perfetto_categories"),
+                    preset=configs.get("perfetto_preset"),
+                    output_dir=output_dir,
+                ) if enabled_tools.get("perfetto") else None
+            ),
+            simpleperf=(
+                SimpleperfRequest(
+                    device_serial=device_serial,
+                    app_name=package_name,
+                    duration_seconds=duration,
+                    frequency=configs.get("simpleperf_freq", 4000),
+                    cold_start=configs.get("simpleperf_cold_start", False),
+                    output_dir=output_dir,
+                ) if enabled_tools.get("simpleperf") else None
+            ),
+            traceview=(
+                TraceviewStartRequest(
+                    device_serial=device_serial,
+                    package_name=package_name,
+                    sampling=configs.get("traceview_sampling", False),
+                    interval=configs.get("traceview_interval", 1000),
+                    output_dir=output_dir,
+                ) if enabled_tools.get("traceview") and package_name else None
+            ),
+            auxiliary_options=configs.get("auxiliary_options") or {},
+        )
+        self.run_request(request)
+
+    def run_request(self, request: ComboRequest):
+        if not request.device_serial:
             self.error_message = "No device selected."
             self._notify_view()
             return
 
-        if not any(enabled_tools.values()):
+        if not any([request.systrace, request.perfetto, request.simpleperf, request.traceview]) and not any(request.auxiliary_options.values()):
             self.error_message = "Select at least one tool."
             self._notify_view()
             return
@@ -41,12 +93,12 @@ class ComboPresenter:
         self._notify_view()
 
         try:
-            self.results = self.combo_service.start_combo_capture(
-                device_serial=device_serial,
-                duration=duration,
-                enabled_tools=enabled_tools,
-                configs=configs
-            )
+            result = self.combo_service.run(request)
+            self.results = result.files
+            if result.errors:
+                self.error_message = "; ".join(
+                    f"{name}: {message}" for name, message in result.errors.items()
+                )
         except Exception as e:
             self.error_message = str(e)
         finally:

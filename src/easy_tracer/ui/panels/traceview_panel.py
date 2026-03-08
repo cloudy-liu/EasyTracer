@@ -1,5 +1,6 @@
 from typing import Optional, Dict
 from PySide6 import QtCore, QtWidgets, QtGui
+from easy_tracer.models.requests import TraceviewStartRequest
 from easy_tracer.presenters.traceview_presenter import TraceviewPresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
@@ -173,18 +174,20 @@ class TraceviewPanel(BasePanel):
             return
         package = self._target_package() or ""
         run_in_thread(
-            self.presenter.start_tracing,
-            self.device_serial,
-            package,
-            self.settings_dialog.sample_radio.isChecked(),
-            self.settings_dialog.interval_spin.value(),
+            self.presenter.start_request,
+            TraceviewStartRequest(
+                device_serial=self.device_serial or "",
+                package_name=package,
+                sampling=self.settings_dialog.sample_radio.isChecked(),
+                interval=self.settings_dialog.interval_spin.value(),
+                output_dir=self.output_path.output_dir(),
+            ),
         )
 
     def stop_capture(self) -> None:
         if not self.device_serial or not self.presenter.is_tracing:
             return
         run_in_thread(
-            self.presenter.stop_tracing,
-            self.device_serial,
+            self.presenter.stop_capture,
             self.output_path.output_dir(),
         )

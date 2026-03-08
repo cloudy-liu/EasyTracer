@@ -8,9 +8,13 @@ Usage:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import click
 
 from easy_tracer.cli.output import OutputContext, output_error, output_success, output_progress
+from easy_tracer.models.requests import PerfettoRequest
+from easy_tracer.runtime import resolve_target_device
 
 
 @click.command()
@@ -42,52 +46,52 @@ def perfetto(
     output: str | None,
 ) -> None:
     """Capture Perfetto trace from an Android device."""
-    from easy_tracer.framework.adb_helper import AdbHelper
-    from easy_tracer.framework.perfetto_adapter import PerfettoAdapter
-    from easy_tracer.services.perfetto_service import PerfettoService
-
-    adb: AdbHelper = ctx.obj["adb"]
+    runtime = ctx.obj["runtime"]
+    adb = runtime.adb
     output_ctx: OutputContext = ctx.obj["output"]
-    output_dir: str = ctx.obj["output_dir"]
 
     if not adb.is_available():
         output_error("ADB not available.", output_ctx)
         ctx.exit(1)
 
-    device_serial = serial
-    if not device_serial:
-        devices = adb.list_devices()
-        if not devices:
-            output_error("No devices connected.", output_ctx)
-            ctx.exit(1)
-        device_serial = devices[0].serial
+    try:
+        device_serial = resolve_target_device(adb.list_devices(), serial)
+    except RuntimeError as exc:
+        output_error(str(exc), output_ctx)
+        ctx.exit(1)
+
+    if not serial:
         output_progress(f"Using device: {device_serial}", output_ctx)
 
     category_list = None
     if categories:
         category_list = [c.strip() for c in categories.split(",") if c.strip()]
 
-    adapter = PerfettoAdapter(adb=adb)
-    service = PerfettoService(adapter, output_dir=output_dir)
-
     mode = "preset" if preset else ("config" if config_file else "categories")
     output_progress(f"Starting Perfetto capture ({duration}s, mode={mode})...", output_ctx)
 
     try:
-        output_path = service.record_trace(
+        config_text = None
+        if config_file:
+            config_text = Path(config_file).read_text(encoding="utf-8-sig")
+
+        result = runtime.perfetto_service.run(
+            PerfettoRequest(
             device_serial=device_serial,
             duration_seconds=duration,
             buffer_size_kb=buffer,
             categories=category_list,
             output_dir=output if output else None,
             preset=preset,
+            config_text=config_text,
+            )
         )
 
         if output_ctx.json_mode:
             from easy_tracer.cli.output import output_json
-            output_json({"status": "success", "output": output_path})
+            output_json({"status": "success", "output": result.output_path})
         else:
-            output_success(f"Trace saved: {output_path}", output_ctx)
+            output_success(f"Trace saved: {result.output_path}", output_ctx)
 
     except Exception as e:
         output_error(str(e), output_ctx)

@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import os
 import time
+
 import click
 
 from easy_tracer.cli.output import OutputContext, output_error, output_success, output_progress
+from easy_tracer.models.requests import ComboRequest, PerfettoRequest, SimpleperfRequest, SystraceRequest, TraceviewStartRequest
+from easy_tracer.runtime import resolve_target_device
 
 
 @click.command()
@@ -44,20 +47,10 @@ def combo(
     output: str | None,
 ) -> None:
     """Run multiple tracers simultaneously."""
-    from easy_tracer.framework.adb_helper import AdbHelper
-    from easy_tracer.framework.systrace_adapter import SystraceAdapter
-    from easy_tracer.framework.perfetto_adapter import PerfettoAdapter
-    from easy_tracer.framework.simpleperf_adapter import SimpleperfAdapter
-    from easy_tracer.framework.traceview_adapter import TraceviewAdapter
-    from easy_tracer.services.capture_service import CaptureService
-    from easy_tracer.services.perfetto_service import PerfettoService
-    from easy_tracer.services.simpleperf_service import SimpleperfService
-    from easy_tracer.services.traceview_service import TraceviewService
-    from easy_tracer.services.combo_service import ComboService
-
-    adb: AdbHelper = ctx.obj["adb"]
+    runtime = ctx.obj["runtime"]
+    adb = runtime.adb
     output_ctx: OutputContext = ctx.obj["output"]
-    output_dir: str = output or ctx.obj["output_dir"]
+    output_dir: str = ctx.obj["output_dir"]
 
     if not adb.is_available():
         output_error("ADB not available.", output_ctx)
@@ -70,108 +63,99 @@ def combo(
         output_error("At least one tracer or auxiliary dump must be enabled.", output_ctx)
         ctx.exit(1)
 
-    device_serial = serial
-    if not device_serial:
-        devices = adb.list_devices()
-        if not devices:
-            output_error("No devices connected.", output_ctx)
-            ctx.exit(1)
-        device_serial = devices[0].serial
+    try:
+        device_serial = resolve_target_device(adb.list_devices(), serial)
+    except RuntimeError as exc:
+        output_error(str(exc), output_ctx)
+        ctx.exit(1)
+
+    if not serial:
         output_progress(f"Using device: {device_serial}", output_ctx)
 
     # Create output directory with timestamp
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    combo_dir = os.path.join(output_dir, f"combo_{timestamp}")
+    combo_dir = output or os.path.join(output_dir, f"combo_{timestamp}")
     os.makedirs(combo_dir, exist_ok=True)
 
-    results: dict[str, str] = {}
-    errors: list[str] = []
+    auxiliary_options = {
+        "logcat": logcat,
+        "packages": packages,
+        "ps": ps,
+        "meminfo": meminfo,
+    }
 
-    # Run tracers via ComboService
-    if enabled:
-        systrace_adapter = SystraceAdapter(adb=adb)
-        perfetto_adapter = PerfettoAdapter(adb=adb)
-        simpleperf_adapter = SimpleperfAdapter(adb=adb)
-        traceview_adapter = TraceviewAdapter(adb=adb)
+    request = ComboRequest(
+        device_serial=device_serial,
+        duration_seconds=duration,
+        output_dir=combo_dir,
+        systrace=(
+            SystraceRequest(
+                device_serial=device_serial,
+                categories=["sched", "gfx", "view", "wm", "am"],
+                duration_seconds=duration,
+                app_name=app,
+                output_dir=combo_dir,
+            ) if systrace else None
+        ),
+        perfetto=(
+            PerfettoRequest(
+                device_serial=device_serial,
+                duration_seconds=duration,
+                output_dir=combo_dir,
+            ) if perfetto else None
+        ),
+        simpleperf=(
+            SimpleperfRequest(
+                device_serial=device_serial,
+                app_name=app,
+                duration_seconds=duration,
+                output_dir=combo_dir,
+            ) if simpleperf else None
+        ),
+        traceview=(
+            TraceviewStartRequest(
+                device_serial=device_serial,
+                package_name=app,
+                output_dir=combo_dir,
+            ) if traceview and app else None
+        ),
+        auxiliary_options=auxiliary_options,
+    )
 
-        capture_service = CaptureService(systrace_adapter, output_dir=combo_dir, adb_helper=adb)
-        perfetto_service = PerfettoService(perfetto_adapter, output_dir=combo_dir)
-        simpleperf_service = SimpleperfService(simpleperf_adapter, output_dir=combo_dir)
-        traceview_service = TraceviewService(traceview_adapter, output_dir=combo_dir)
-
-        combo_service = ComboService(
-            systrace_service=capture_service,
-            simpleperf_service=simpleperf_service,
-            perfetto_service=perfetto_service,
-            traceview_service=traceview_service,
-            output_dir=combo_dir,
-        )
-
-        enabled_tools = {
-            "systrace": systrace,
-            "perfetto": perfetto,
-            "simpleperf": simpleperf,
-            "traceview": traceview,
-        }
-
-        configs = {
-            "package_name": app,
-            "systrace_categories": ["sched", "gfx", "view", "wm", "am"],
-        }
-
+    enabled_list = [name for name, is_enabled in {
+        "systrace": systrace,
+        "perfetto": perfetto,
+        "simpleperf": simpleperf,
+        "traceview": traceview,
+    }.items() if is_enabled]
+    if enabled_list:
         output_progress(f"Starting combo capture ({duration}s)...", output_ctx)
-        enabled_list = [k for k, v in enabled_tools.items() if v]
         output_progress(f"Enabled tracers: {', '.join(enabled_list)}", output_ctx)
-
-        try:
-            tracer_results = combo_service.start_combo_capture(
-                device_serial=device_serial,
-                duration=duration,
-                enabled_tools=enabled_tools,
-                configs=configs,
-            )
-            results.update(tracer_results)
-        except RuntimeError as e:
-            errors.append(str(e))
-
-    # Run auxiliary dumps
-    if auxiliary:
+    elif auxiliary:
         output_progress("Collecting auxiliary dumps...", output_ctx)
-        output_prefix = os.path.join(combo_dir, "aux")
 
-        dump_options = {
-            "logcat": logcat,
-            "packages": packages,
-            "ps": ps,
-            "meminfo": meminfo,
-        }
-
-        systrace_adapter = SystraceAdapter(adb=adb)
-        capture_service = CaptureService(systrace_adapter, output_dir=combo_dir, adb_helper=adb)
-
-        try:
-            aux_results = capture_service.dump_auxiliary_logs(
-                device_serial=device_serial,
-                output_prefix=output_prefix,
-                options=dump_options,
-            )
-            results.update(aux_results)
-        except Exception as e:
-            errors.append(f"Auxiliary dump error: {e}")
+    try:
+        result = runtime.combo_service.run(request)
+    except Exception as e:
+        output_error(str(e), output_ctx)
+        ctx.exit(1)
 
     # Output results
     if output_ctx.json_mode:
         from easy_tracer.cli.output import output_json
         output_json({
-            "status": "success" if not errors else "partial",
+            "status": result.status,
             "output_dir": combo_dir,
-            "files": results,
-            "errors": errors if errors else None,
+            "files": result.files,
+            "errors": result.errors or None,
         })
     else:
         output_success(f"Output directory: {combo_dir}", output_ctx)
-        for name, path in results.items():
+        for name, path in result.files.items():
             click.echo(f"  {name}: {path}")
-        if errors:
-            for err in errors:
-                output_error(err, output_ctx)
+        if result.errors:
+            for name, message in result.errors.items():
+                output_error(f"{name}: {message}", output_ctx)
+
+    if result.status == "error":
+        ctx.exit(1)

@@ -1,4 +1,6 @@
 from typing import List, Optional, Callable, Dict
+
+from easy_tracer.models.requests import SystraceRequest
 from easy_tracer.services.capture_service import CaptureService
 
 
@@ -72,12 +74,24 @@ class SystracePresenter:
         output_dir: Optional[str] = None,
         auxiliary_options: Optional[Dict[str, bool]] = None,
     ):
-        if not device_serial:
+        request = SystraceRequest(
+            device_serial=device_serial,
+            categories=selected_categories,
+            duration_seconds=duration,
+            buffer_size_kb=buffer_size,
+            app_name=app_name,
+            output_dir=output_dir,
+            auxiliary_options=auxiliary_options or {},
+        )
+        self.run_request(request)
+
+    def run_request(self, request: SystraceRequest):
+        if not request.device_serial:
             self.error_message = "No device selected."
             self._notify_view()
             return
 
-        if not selected_categories:
+        if not request.categories:
             self.error_message = "No categories selected."
             self._notify_view()
             return
@@ -89,25 +103,9 @@ class SystracePresenter:
         self._notify_view()
 
         try:
-            path = self.capture_service.start_capture(
-                device_serial=device_serial,
-                categories=selected_categories,
-                duration_seconds=duration,
-                buffer_size_kb=buffer_size,
-                app_name=app_name,
-                output_dir=output_dir,
-            )
-            self.last_output_path = path
-
-            # Dump auxiliary logs if requested
-            if auxiliary_options and any(auxiliary_options.values()):
-                # Remove extension from trace path for prefix
-                prefix = path.rsplit(".", 1)[0] if "." in path else path
-                self.auxiliary_outputs = self.capture_service.dump_auxiliary_logs(
-                    device_serial=device_serial,
-                    output_prefix=prefix,
-                    options=auxiliary_options,
-                )
+            result = self.capture_service.run(request)
+            self.last_output_path = result.output_path
+            self.auxiliary_outputs = result.auxiliary_outputs
         except Exception as e:
             self.error_message = f"Capture failed: {str(e)}"
         finally:

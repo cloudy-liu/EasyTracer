@@ -20,6 +20,7 @@ from pathlib import Path
 import click
 
 from easy_tracer.cli.output import OutputContext
+from easy_tracer.runtime import build_runtime_context, get_app_root
 
 
 # =============================================================================
@@ -68,16 +69,18 @@ def cli(
     A CLI for capturing systrace, Perfetto, simpleperf, and traceview traces
     from Android devices.
     """
-    from easy_tracer.framework.adb_helper import AdbHelper
-
     ctx.ensure_object(dict)
 
     # Resolve ADB path
     resolved_adb = adb_path or _resolve_default_adb()
-    ctx.obj["adb"] = AdbHelper(adb_path=resolved_adb)
 
     # Resolve output directory
-    ctx.obj["output_dir"] = output_dir or _resolve_default_output_dir()
+    resolved_output_dir = output_dir or _resolve_default_output_dir()
+    runtime = build_runtime_context(adb_path=resolved_adb, output_dir=resolved_output_dir)
+
+    ctx.obj["runtime"] = runtime
+    ctx.obj["adb"] = runtime.adb
+    ctx.obj["output_dir"] = resolved_output_dir
 
     # Output context
     ctx.obj["output"] = OutputContext(json_mode=json_mode, quiet=quiet)
@@ -109,7 +112,7 @@ def _get_app_root() -> Path:
     """Get application root directory."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
-    return Path(__file__).resolve().parents[3]
+    return get_app_root(__file__)
 
 
 # =============================================================================

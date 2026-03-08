@@ -13,6 +13,7 @@ Removed: Ftrace tab (dead code - UI allowed selection but start_capture never us
 
 from typing import Optional, Dict
 from PySide6 import QtCore, QtWidgets, QtGui
+from easy_tracer.models.requests import SystraceRequest
 from easy_tracer.presenters.systrace_presenter import SystracePresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
@@ -345,14 +346,16 @@ class SystracePanel(BasePanel):
                 return
 
         run_in_thread(
-            self.presenter.start_capture,
-            self.device_serial,
-            selected,
-            self._get_duration(),
-            self.buffer_spin.value(),
-            self._get_target_app(),
-            self.output_path.output_dir(),
-            self._auxiliary_options,
+            self.presenter.run_request,
+            SystraceRequest(
+                device_serial=self.device_serial or "",
+                categories=selected,
+                duration_seconds=self._get_duration(),
+                buffer_size_kb=self.buffer_spin.value(),
+                app_name=self._get_target_app(),
+                output_dir=self.output_path.output_dir(),
+                auxiliary_options=self._auxiliary_options,
+            ),
         )
 
     def set_output_dir(self, output_dir: str) -> None:

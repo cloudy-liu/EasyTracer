@@ -1,5 +1,6 @@
 from typing import Optional, Dict, Any
 from PySide6 import QtCore, QtWidgets, QtGui
+from easy_tracer.models.requests import ComboRequest, PerfettoRequest, SimpleperfRequest, SystraceRequest, TraceviewStartRequest
 from easy_tracer.presenters.combo_presenter import ComboPresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
@@ -163,29 +164,56 @@ class ComboPanel(BasePanel):
             return None
         return None
 
+    def _build_request(self) -> ComboRequest:
+        output_dir = self.output_path.output_dir()
+        package_name = self._target_package()
+        duration = int(self.duration_spin.value())
+
+        return ComboRequest(
+            device_serial=self.device_serial or "",
+            duration_seconds=duration,
+            output_dir=output_dir,
+            systrace=(
+                SystraceRequest(
+                    device_serial=self.device_serial or "",
+                    categories=["sched", "gfx", "view", "wm", "am"],
+                    duration_seconds=duration,
+                    app_name=package_name,
+                    output_dir=output_dir,
+                ) if self.systrace_cb.isChecked() else None
+            ),
+            perfetto=(
+                PerfettoRequest(
+                    device_serial=self.device_serial or "",
+                    duration_seconds=duration,
+                    output_dir=output_dir,
+                ) if self.perfetto_cb.isChecked() else None
+            ),
+            simpleperf=(
+                SimpleperfRequest(
+                    device_serial=self.device_serial or "",
+                    app_name=package_name,
+                    duration_seconds=duration,
+                    frequency=int(self.settings_dialog.simpleperf_freq.currentText()),
+                    cold_start=self.settings_dialog.cold_start_cb.isChecked(),
+                    output_dir=output_dir,
+                ) if self.simpleperf_cb.isChecked() else None
+            ),
+            traceview=(
+                TraceviewStartRequest(
+                    device_serial=self.device_serial or "",
+                    package_name=package_name,
+                    output_dir=output_dir,
+                ) if self.traceview_cb.isChecked() and package_name else None
+            ),
+            auxiliary_options=self._auxiliary_options,
+        )
+
     def start_capture(self) -> None:
         if not self.is_ready():
             return
 
-        enabled = {
-            "systrace": self.systrace_cb.isChecked(),
-            "perfetto": self.perfetto_cb.isChecked(),
-            "simpleperf": self.simpleperf_cb.isChecked(),
-            "traceview": self.traceview_cb.isChecked(),
-        }
-
-        configs = {
-            "package_name": self._target_package(),
-            "simpleperf_freq": int(self.settings_dialog.simpleperf_freq.currentText()),
-        }
-
-        # Update service output dir before starting
-        self.presenter.combo_service.output_dir = self.output_path.output_dir()
-
         run_in_thread(
-            self.presenter.start_combo,
-            self.device_serial,
-            int(self.duration_spin.value()),
-            enabled,
-            configs,
+            self.presenter.run_request,
+            self._build_request(),
         )

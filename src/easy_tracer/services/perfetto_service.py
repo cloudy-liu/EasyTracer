@@ -5,6 +5,8 @@ from easy_tracer.framework import perfetto_adapter
 from easy_tracer.framework.perfetto_config_builder import (
     PerfettoConfig, build_config, config_from_preset
 )
+from easy_tracer.models.requests import PerfettoRequest
+from easy_tracer.models.results import CaptureResult
 
 class PerfettoService:
     def __init__(
@@ -44,9 +46,22 @@ class PerfettoService:
         Returns:
             Path to the output trace file
         """
+        request = PerfettoRequest(
+            device_serial=device_serial,
+            duration_seconds=duration_seconds,
+            buffer_size_kb=buffer_size_kb,
+            categories=categories,
+            output_dir=output_dir,
+            preset=preset,
+            config=config,
+        )
+        return self.run(request).output_path
+
+    def run(self, request: PerfettoRequest) -> CaptureResult:
+        """Run perfetto using a shared request contract."""
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filename = f"perfetto_{timestamp}.perfetto-trace"
-        base_dir = output_dir or self.output_dir
+        base_dir = request.output_dir or self.output_dir
         if not os.path.exists(base_dir):
             os.makedirs(base_dir, exist_ok=True)
         output_path = os.path.join(base_dir, filename)
@@ -54,22 +69,28 @@ class PerfettoService:
 
         config_text = None
 
-        if config:
+        if request.config_text:
+            config_text = request.config_text
+        elif request.config:
             # Use provided config
-            config_text = build_config(config)
-        elif preset:
+            config_text = build_config(request.config)
+        elif request.preset:
             # Use preset
-            cfg = config_from_preset(preset, duration_ms=duration_seconds * 1000)
+            cfg = config_from_preset(request.preset, duration_ms=request.duration_seconds * 1000)
             config_text = build_config(cfg)
         # else: use simple command-line method (categories + buffer)
 
         self.perfetto_adapter.record_trace(
-            device_serial=device_serial,
+            device_serial=request.device_serial,
             output_path=output_path,
-            duration_seconds=duration_seconds,
-            buffer_size_kb=buffer_size_kb,
-            categories=categories,
+            duration_seconds=request.duration_seconds,
+            buffer_size_kb=request.buffer_size_kb,
+            categories=request.categories,
             config_text=config_text,
         )
 
-        return output_path
+        return CaptureResult(
+            tool="perfetto",
+            output_path=output_path,
+            outputs={"trace": output_path},
+        )

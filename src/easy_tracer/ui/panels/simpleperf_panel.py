@@ -1,5 +1,6 @@
 from typing import Optional, Dict
 from PySide6 import QtCore, QtWidgets, QtGui
+from easy_tracer.models.requests import SimpleperfRequest
 from easy_tracer.presenters.simpleperf_presenter import SimpleperfPresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
@@ -174,23 +175,27 @@ class SimpleperfPanel(BasePanel):
 
         if target == "系统范围 (System-wide)":
             run_in_thread(
-                self.presenter.start_system_profiling,
-                self.device_serial,
-                self._duration_seconds(),
-                self._frequency(),
-                output_dir,
-                self._auxiliary_options,
+                self.presenter.run_request,
+                SimpleperfRequest(
+                    device_serial=self.device_serial or "",
+                    duration_seconds=self._duration_seconds(),
+                    frequency=self._frequency(),
+                    output_dir=output_dir,
+                    auxiliary_options=self._auxiliary_options,
+                ),
             )
             return
 
         app_name = self._target_package()
         run_in_thread(
-            self.presenter.start_app_profiling,
-            self.device_serial,
-            app_name or "",
-            self._duration_seconds(),
-            self._frequency(),
-            output_dir,
-            cold_start,
-            self._auxiliary_options,
+            self.presenter.run_request,
+            SimpleperfRequest(
+                device_serial=self.device_serial or "",
+                app_name=app_name or "",
+                duration_seconds=self._duration_seconds(),
+                frequency=self._frequency(),
+                output_dir=output_dir,
+                cold_start=cold_start,
+                auxiliary_options=self._auxiliary_options,
+            ),
         )
