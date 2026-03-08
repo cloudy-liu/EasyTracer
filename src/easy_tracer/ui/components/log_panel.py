@@ -3,30 +3,111 @@ from __future__ import annotations
 from PySide6 import QtGui, QtWidgets
 
 
-class LogPanel(QtWidgets.QWidget):
+class LogPanel(QtWidgets.QFrame):
     def __init__(self, parent: QtWidgets.QWidget | None = None):
         super().__init__(parent)
-        self.text = QtWidgets.QTextEdit()
+        self.setObjectName("logArea")
+        self._collapsed = False
         self._last_write_was_stream = False
+
+        self._title = QtWidgets.QLabel("OUTPUT LOG")
+        self._title.setObjectName("logHeaderTitle")
+
+        self.toggle_button = QtWidgets.QToolButton()
+        self.toggle_button.setObjectName("logToggleButton")
+        self.toggle_button.setAutoRaise(True)
+        self.toggle_button.clicked.connect(self.toggle_collapsed)
+
+        header = QtWidgets.QFrame()
+        header.setObjectName("logHeader")
+        header_layout = QtWidgets.QHBoxLayout(header)
+        header_layout.setContentsMargins(12, 8, 12, 8)
+        header_layout.setSpacing(8)
+        header_layout.addWidget(self._title)
+        header_layout.addStretch(1)
+        header_layout.addWidget(self.toggle_button)
+
+        self.text = QtWidgets.QTextEdit()
+        self.text.setObjectName("logContent")
         self.text.setReadOnly(True)
-        # Default log area was too small; keep it comfortably readable.
-        self.text.setMinimumHeight(240)
-        self.text.setSizePolicy(
-            QtWidgets.QSizePolicy.Expanding,
-            QtWidgets.QSizePolicy.Expanding,
-        )
+        self.text.setMinimumHeight(180)
+        font = QtGui.QFont("JetBrains Mono")
+        if not QtGui.QFontInfo(font).exactMatch():
+            font = QtGui.QFont("Cascadia Mono")
+        if not QtGui.QFontInfo(font).exactMatch():
+            font = QtGui.QFont("Consolas")
+        self.text.setFont(font)
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(header)
         layout.addWidget(self.text)
 
+        self._apply_styles()
+        self._sync_collapsed_state()
+
+    def _apply_styles(self) -> None:
+        self.setStyleSheet(
+            """
+            QFrame#logArea {
+                background-color: #ffffff;
+                border-top: 1px solid #e4e7eb;
+            }
+            QFrame#logHeader {
+                background-color: #f8f9fa;
+                border-bottom: 1px solid #e4e7eb;
+            }
+            QLabel#logHeaderTitle {
+                color: #757575;
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+            QToolButton#logToggleButton {
+                border: none;
+                background: transparent;
+                color: #757575;
+                font-size: 11px;
+                padding: 2px;
+            }
+            QToolButton#logToggleButton:hover {
+                color: #212121;
+            }
+            QTextEdit#logContent {
+                border: none;
+                background-color: #fafafa;
+                color: #616161;
+                selection-background-color: #bbdefb;
+                padding: 8px 12px;
+            }
+            """
+        )
+
+    def is_collapsed(self) -> bool:
+        return self._collapsed
+
+    def toggle_collapsed(self) -> None:
+        self.set_collapsed(not self._collapsed)
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        self._collapsed = bool(collapsed)
+        self._sync_collapsed_state()
+
+    def _sync_collapsed_state(self) -> None:
+        self.text.setVisible(not self._collapsed)
+        self.toggle_button.setText("▸" if self._collapsed else "▾")
+        self.setMinimumHeight(32 if self._collapsed else 188)
+
     def append(self, message: str) -> None:
+        if not message:
+            return
         self.text.append(message)
         self._last_write_was_stream = False
         self.text.ensureCursorVisible()
 
     def append_stream(self, message: str) -> None:
-        """Append raw stream chunks without forcing a newline."""
         if not message:
             return
         cursor = self.text.textCursor()

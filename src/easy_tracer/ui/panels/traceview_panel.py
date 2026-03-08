@@ -63,6 +63,7 @@ class TraceviewPanel(BasePanel):
         self.custom_duration.setValue(5)
         self.custom_duration.setSuffix(" s")
         self.custom_duration.setEnabled(False)
+        self.custom_duration.setVisible(False)
         self.duration_combo.currentTextChanged.connect(self._toggle_custom_duration)
         row1.addWidget(self.custom_duration)
 
@@ -76,6 +77,7 @@ class TraceviewPanel(BasePanel):
         self.target_input = QtWidgets.QLineEdit()
         self.target_input.setPlaceholderText("com.example.app")
         self.target_input.setEnabled(False)
+        self.target_input.setVisible(False)
         self.target_combo.currentTextChanged.connect(self._toggle_target_input)
         row1.addWidget(self.target_input, 1)
 
@@ -94,7 +96,8 @@ class TraceviewPanel(BasePanel):
         )
         row2.addWidget(self.output_path, 1)
 
-        self.open_output_btn = QtWidgets.QPushButton("\U0001f4c2")
+        self.open_output_btn = QtWidgets.QPushButton()
+        self.open_output_btn.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DirOpenIcon))
         self.open_output_btn.setToolTip("Open output directory")
         self.open_output_btn.setMaximumWidth(36)
         self.open_output_btn.clicked.connect(self._on_open_output)
@@ -158,10 +161,14 @@ class TraceviewPanel(BasePanel):
     # =========================================================================
 
     def _toggle_custom_duration(self, text: str) -> None:
-        self.custom_duration.setEnabled(text == "Custom")
+        is_custom = text == "Custom"
+        self.custom_duration.setEnabled(is_custom)
+        self.custom_duration.setVisible(is_custom)
 
     def _toggle_target_input(self, text: str) -> None:
-        self.target_input.setEnabled(text == "\u81ea\u5b9a\u4e49\u5305\u540d")
+        is_custom = text == "\u81ea\u5b9a\u4e49\u5305\u540d"
+        self.target_input.setEnabled(is_custom)
+        self.target_input.setVisible(is_custom)
 
     def _toggle_sampling(self) -> None:
         self.interval_spin.setEnabled(self.sample_radio.isChecked())

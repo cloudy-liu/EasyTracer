@@ -1,11 +1,21 @@
-from typing import Optional, Dict, Any
-from PySide6 import QtCore, QtWidgets, QtGui
-from easy_tracer.models.requests import ComboRequest, PerfettoRequest, SimpleperfRequest, SystraceRequest, TraceviewStartRequest
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
+
+from PySide6 import QtCore, QtGui, QtWidgets
+
+from easy_tracer.models.requests import (
+    ComboRequest,
+    PerfettoRequest,
+    SimpleperfRequest,
+    SystraceRequest,
+    TraceviewStartRequest,
+)
 from easy_tracer.presenters.combo_presenter import ComboPresenter
-from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
-from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.dialogs.base_settings_dialog import BaseSettingsDialog
+from easy_tracer.ui.panels.base_panel import BasePanel
+from easy_tracer.ui.qt_threading import run_in_thread
 
 
 class _UpdateEmitter(QtCore.QObject):
@@ -29,16 +39,21 @@ class ComboSettingsDialog(BaseSettingsDialog):
 
 
 class ComboPanel(BasePanel):
-    def __init__(self, presenter: ComboPresenter, device_serial: Optional[str], default_output_dir: str):
+    def __init__(
+        self,
+        presenter: ComboPresenter,
+        device_serial: Optional[str],
+        default_output_dir: str,
+    ):
         super().__init__()
         self.presenter = presenter
         self.device_serial = device_serial
         self._auxiliary_options: Dict[str, bool] = {}
+
         self._update_emitter = _UpdateEmitter()
         self._update_emitter.updated.connect(self.update_view)
         self.presenter.bind_view_update(self._update_emitter.updated.emit)
 
-        # --- Controls ---
         self.duration_spin = QtWidgets.QSpinBox()
         self.duration_spin.setRange(1, 600)
         self.duration_spin.setValue(10)
@@ -46,11 +61,15 @@ class ComboPanel(BasePanel):
 
         self.target_combo = QtWidgets.QComboBox()
         self.target_combo.addItems([
-            "所有应用 (*)", "当前前台应用 (Top App)", "自定义包名"
+            "All Apps (*)",
+            "Top App (Foreground)",
+            "Custom Package",
         ])
+
         self.target_input = QtWidgets.QLineEdit()
         self.target_input.setPlaceholderText("com.example.app")
         self.target_input.setEnabled(False)
+        self.target_input.setVisible(False)
         self.target_combo.currentTextChanged.connect(self._toggle_target_input)
 
         self.settings_dialog = ComboSettingsDialog(self)
@@ -64,12 +83,12 @@ class ComboPanel(BasePanel):
             tooltip="Shared output directory. Changes sync across panels.",
         )
 
-        self.open_output_btn = QtWidgets.QPushButton("📂")
+        self.open_output_btn = QtWidgets.QPushButton()
+        self.open_output_btn.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DirOpenIcon))
         self.open_output_btn.setToolTip("Open output directory")
         self.open_output_btn.setMaximumWidth(36)
         self.open_output_btn.clicked.connect(self._on_open_output)
 
-        # --- Tool Checkboxes ---
         self.perfetto_cb = QtWidgets.QCheckBox("Perfetto")
         self.simpleperf_cb = QtWidgets.QCheckBox("Simpleperf")
         self.systrace_cb = QtWidgets.QCheckBox("Systrace")
@@ -80,12 +99,16 @@ class ComboPanel(BasePanel):
         self.result_text = QtWidgets.QTextEdit()
         self.result_text.setReadOnly(True)
 
-        # --- Layout ---
-        # Target Group
+        self._build_layout()
+        self.update_device(self.device_serial)
+
+    def _build_layout(self) -> None:
         target_layout = QtWidgets.QHBoxLayout()
-        target_layout.setContentsMargins(0,0,0,0)
+        target_layout.setContentsMargins(0, 0, 0, 0)
+        target_layout.setSpacing(8)
         target_layout.addWidget(self.target_combo)
         target_layout.addWidget(self.target_input)
+
         target_widget = QtWidgets.QWidget()
         target_widget.setLayout(target_layout)
 
@@ -99,7 +122,6 @@ class ComboPanel(BasePanel):
         row1.addWidget(self.open_output_btn)
         row1.addWidget(self.settings_btn)
 
-        # Row 2: Tools
         row2 = QtWidgets.QHBoxLayout()
         row2.addWidget(QtWidgets.QLabel("Tools:"))
         row2.addWidget(self.perfetto_cb)
@@ -115,13 +137,12 @@ class ComboPanel(BasePanel):
         layout.addWidget(QtWidgets.QLabel("Results"))
         layout.addWidget(self.result_text, 1)
 
-        self.update_device(self.device_serial)
-
-    def _toggle_target_input(self, text: str) -> None:
-        self.target_input.setEnabled(text == "自定义包名")
+    def _toggle_target_input(self, _text: str) -> None:
+        is_custom = self.target_combo.currentIndex() == self.target_combo.count() - 1
+        self.target_input.setEnabled(is_custom)
+        self.target_input.setVisible(is_custom)
 
     def set_auxiliary_options(self, options: Dict[str, bool]) -> None:
-        """Set auxiliary output options from main window."""
         self._auxiliary_options = options
 
     def _on_open_output(self) -> None:
@@ -153,15 +174,12 @@ class ComboPanel(BasePanel):
             self.error_message.emit(self.presenter.error_message)
 
         if self.presenter.results:
-            lines = [f"{k}: {v}" for k, v in self.presenter.results.items()]
+            lines = [f"{key}: {value}" for key, value in self.presenter.results.items()]
             self.result_text.setPlainText("\n".join(lines))
 
     def _target_package(self) -> Optional[str]:
-        text = self.target_combo.currentText()
-        if text == "自定义包名":
+        if self.target_combo.currentIndex() == self.target_combo.count() - 1:
             return self.target_input.text().strip() or None
-        if text == "当前前台应用 (Top App)":
-            return None
         return None
 
     def _build_request(self) -> ComboRequest:
@@ -180,14 +198,18 @@ class ComboPanel(BasePanel):
                     duration_seconds=duration,
                     app_name=package_name,
                     output_dir=output_dir,
-                ) if self.systrace_cb.isChecked() else None
+                )
+                if self.systrace_cb.isChecked()
+                else None
             ),
             perfetto=(
                 PerfettoRequest(
                     device_serial=self.device_serial or "",
                     duration_seconds=duration,
                     output_dir=output_dir,
-                ) if self.perfetto_cb.isChecked() else None
+                )
+                if self.perfetto_cb.isChecked()
+                else None
             ),
             simpleperf=(
                 SimpleperfRequest(
@@ -197,14 +219,18 @@ class ComboPanel(BasePanel):
                     frequency=int(self.settings_dialog.simpleperf_freq.currentText()),
                     cold_start=self.settings_dialog.cold_start_cb.isChecked(),
                     output_dir=output_dir,
-                ) if self.simpleperf_cb.isChecked() else None
+                )
+                if self.simpleperf_cb.isChecked()
+                else None
             ),
             traceview=(
                 TraceviewStartRequest(
                     device_serial=self.device_serial or "",
                     package_name=package_name,
                     output_dir=output_dir,
-                ) if self.traceview_cb.isChecked() and package_name else None
+                )
+                if self.traceview_cb.isChecked() and package_name
+                else None
             ),
             auxiliary_options=self._auxiliary_options,
         )
@@ -214,8 +240,5 @@ class ComboPanel(BasePanel):
             return
 
         request = self._build_request()
-        run_in_thread(
-            self.presenter.run_request,
-            request,
-        )
+        run_in_thread(self.presenter.run_request, request)
         self.capture_started.emit(request.duration_seconds)

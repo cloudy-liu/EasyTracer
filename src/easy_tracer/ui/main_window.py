@@ -3,29 +3,61 @@ from __future__ import annotations
 import logging
 from typing import Callable, List, Optional
 
-from PySide6 import QtCore, QtWidgets, QtGui
+from PySide6 import QtCore, QtGui, QtWidgets
+
 from easy_tracer.assets import load_icon
 from easy_tracer.models.device import Device
-from easy_tracer.presenters.main_presenter import MainPresenter
-from easy_tracer.presenters.systrace_presenter import SystracePresenter
-from easy_tracer.presenters.simpleperf_presenter import SimpleperfPresenter
-from easy_tracer.presenters.perfetto_presenter import PerfettoPresenter
-from easy_tracer.presenters.traceview_presenter import TraceviewPresenter
 from easy_tracer.presenters.combo_presenter import ComboPresenter
+from easy_tracer.presenters.main_presenter import MainPresenter
+from easy_tracer.presenters.perfetto_presenter import PerfettoPresenter
+from easy_tracer.presenters.simpleperf_presenter import SimpleperfPresenter
+from easy_tracer.presenters.systrace_presenter import SystracePresenter
+from easy_tracer.presenters.traceview_presenter import TraceviewPresenter
 from easy_tracer.services.config_service import ConfigService
-from easy_tracer.ui.components.device_toolbar import DeviceToolbar
-from easy_tracer.ui.components.log_panel import LogPanel
-from easy_tracer.ui.theme import record_button_qss, Dimensions, Colors, Spacing, Typography
 from easy_tracer.ui import logging_bridge
+from easy_tracer.ui.components.log_panel import LogPanel
+from easy_tracer.ui.panels.about_panel import AboutPanel
 from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.panels.device_panel import DevicePanel
 from easy_tracer.ui.panels.settings_panel import SettingsPanel
-from easy_tracer.ui.panels.about_panel import AboutPanel
 from easy_tracer.ui.qt_threading import Worker
+from easy_tracer.ui.theme import Colors, Dimensions, Typography, record_button_qss
 
 logger = logging.getLogger(__name__)
 
 PanelFactory = Callable[[], QtWidgets.QWidget]
+
+NAV_SECTIONS = [
+    (
+        "Tracers",
+        [
+            ("Systrace", "systrace", 1),
+            ("Perfetto", "perfetto", 2),
+            ("Simpleperf", "simpleperf", 3),
+            ("Traceview", "traceview", 4),
+            ("Combo", "combo", 5),
+        ],
+    ),
+    (
+        "System",
+        [
+            ("Device", "device", 0),
+            ("Settings", "settings", 6),
+            ("About", "about", 7),
+        ],
+    ),
+]
+
+PANEL_KEYS = {
+    0: "device",
+    1: "systrace",
+    2: "perfetto",
+    3: "simpleperf",
+    4: "traceview",
+    5: "combo",
+    6: "settings",
+    7: "about",
+}
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -43,163 +75,95 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.presenter = presenter
         self.config_service = config_service
-        self.current_device: Optional[Device] = None
         self.systrace_presenter = systrace_presenter
         self.simpleperf_presenter = simpleperf_presenter
         self.perfetto_presenter = perfetto_presenter
         self.traceview_presenter = traceview_presenter
         self.combo_presenter = combo_presenter
+
+        self.current_device: Optional[Device] = None
+        self._devices: List[Device] = []
         self._refresh_in_progress = False
         self._refresh_pending = False
         self._current_ready = False
         self._current_busy = False
+        self._capture_duration = 0
+        self._capture_elapsed = 0
+        self._nav_buttons: dict[int, QtWidgets.QPushButton] = {}
+        self._nav_base_text: dict[int, str] = {}
 
         self.setWindowTitle("EasyTracer")
         self.setWindowIcon(load_icon("app", size=64))
-        self.resize(1100, 780)
+        self.resize(Dimensions.WINDOW_DEFAULT_WIDTH, Dimensions.WINDOW_DEFAULT_HEIGHT)
 
-        # Global record button: idle=record(green), busy=stop(red).
+        self._countdown_timer = QtCore.QTimer(self)
+        self._countdown_timer.setInterval(1000)
+        self._countdown_timer.timeout.connect(self._on_countdown_tick)
+
+        self._build_header_controls()
+        self._build_stack()
+        self._build_shell()
+        self._build_status_bar()
+
+        self._qt_log_handler = logging_bridge.install_qt_logging(self.log_panel.append)
+        self._qt_stdio_bridge = logging_bridge.install_qt_stdio(self.log_panel.append_stream)
+
+        self.settings_panel.settings_saved.connect(self._apply_runtime_settings)
+        self._activate_stack_index(2)
+        self._on_options_changed()
+
+        if auto_refresh_devices:
+            QtCore.QTimer.singleShot(0, self.refresh_devices)
+
+    def _build_header_controls(self) -> None:
         self.record_button = QtWidgets.QPushButton("录制")
         self.record_button.setMinimumWidth(Dimensions.BUTTON_RECORD_WIDTH)
         self.record_button.clicked.connect(self._on_global_record_clicked)
         self.record_button.setEnabled(False)
         self._set_record_button_visuals(is_recording=False)
 
-        # Toolbar — single container so QToolBar doesn't spread items apart.
-        self.toolbar = QtWidgets.QToolBar("Main Toolbar")
-        self.toolbar.setMovable(False)
-        self.toolbar.setFloatable(False)
-        self.toolbar.setStyleSheet(f"""
-            QToolBar {{
-                background-color: {Colors.NEUTRAL_100};
-                border-bottom: 1px solid {Colors.NEUTRAL_300};
-                spacing: 0;
-            }}
-        """)
-        self.addToolBar(self.toolbar)
+        self.device_label = QtWidgets.QLabel("Device:")
+        self.device_label.setProperty("toolbarLabel", True)
 
-        self.device_toolbar = DeviceToolbar()
-        self.device_toolbar.refresh_requested.connect(self.refresh_devices)
-        self.device_toolbar.device_changed.connect(self._on_device_changed)
-        self.device_toolbar.options_changed.connect(self._on_options_changed)
+        self.device_combo = QtWidgets.QComboBox()
+        self.device_combo.setMinimumWidth(220)
+        self.device_combo.setMaximumWidth(360)
+        self.device_combo.currentIndexChanged.connect(self._on_device_selection_changed)
 
-        toolbar_container = QtWidgets.QWidget()
-        tc_layout = QtWidgets.QHBoxLayout(toolbar_container)
-        tc_layout.setContentsMargins(Spacing.XL, Spacing.MD, Spacing.XL, Spacing.MD)
-        tc_layout.setSpacing(Spacing.LG)
-        tc_layout.addWidget(self.device_toolbar)
+        self.refresh_button = QtWidgets.QPushButton("Refresh")
+        self.refresh_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_BrowserReload))
+        self.refresh_button.clicked.connect(self.refresh_devices)
 
-        sep = QtWidgets.QFrame()
-        sep.setFrameShape(QtWidgets.QFrame.VLine)
-        sep.setFixedWidth(1)
-        sep.setFixedHeight(28)
-        sep.setStyleSheet(f"background-color: {Colors.NEUTRAL_300};")
-        tc_layout.addWidget(sep)
+        self.toolbar_separator = QtWidgets.QFrame()
+        self.toolbar_separator.setObjectName("toolbarSeparator")
+        self.toolbar_separator.setFrameShape(QtWidgets.QFrame.VLine)
+        self.toolbar_separator.setFixedSize(1, 28)
 
-        tc_layout.addWidget(self.record_button)
-        tc_layout.addStretch(1)
-        self.toolbar.addWidget(toolbar_container)
+        self.aux_label = QtWidgets.QLabel("Capture extras")
+        self.aux_label.setProperty("captionLabel", True)
 
-        # Status Bar
-        self.status_bar = QtWidgets.QStatusBar()
-        self.setStatusBar(self.status_bar)
-        self.status_progress = QtWidgets.QProgressBar()
-        self.status_progress.setMaximumWidth(200)
-        self.status_progress.setVisible(False)
-        self.status_progress.setRange(0, 0)  # Indeterminate
-        self.status_bar.addPermanentWidget(self.status_progress)
+        self.logcat_cb = QtWidgets.QCheckBox("Logcat")
+        self.packages_cb = QtWidgets.QCheckBox("Packages")
+        self.ps_cb = QtWidgets.QCheckBox("PS")
+        self.meminfo_cb = QtWidgets.QCheckBox("Meminfo")
+        self.logcat_cb.setChecked(True)
+        self.packages_cb.setChecked(True)
 
-        # Countdown timer drives determinate progress during timed captures.
-        self._countdown_timer = QtCore.QTimer()
-        self._countdown_timer.setInterval(1000)
-        self._countdown_timer.timeout.connect(self._on_countdown_tick)
-        self._capture_duration = 0
-        self._capture_elapsed = 0
+        for checkbox in (self.logcat_cb, self.packages_cb, self.ps_cb, self.meminfo_cb):
+            checkbox.stateChanged.connect(self._on_options_changed)
 
-        self.nav_list = QtWidgets.QListWidget()
-        self.nav_list.setMinimumWidth(160)
-        self.nav_list.setSizePolicy(
-            QtWidgets.QSizePolicy.Fixed,
-            QtWidgets.QSizePolicy.Expanding,
-        )
-
-        # Sidebar-specific styling: flat left-border indicator, no rounded frame.
-        self.nav_list.setStyleSheet(f"""
-            QListWidget {{
-                border: none;
-                border-right: 1px solid {Colors.NEUTRAL_300};
-                border-radius: 0;
-                background-color: {Colors.SURFACE};
-                outline: none;
-            }}
-            QListWidget::item {{
-                padding: {Spacing.MD}px {Spacing.XL}px;
-                border-left: 3px solid transparent;
-            }}
-            QListWidget::item:hover {{
-                background-color: {Colors.NEUTRAL_100};
-            }}
-            QListWidget::item:selected {{
-                background-color: #e3f2fd;
-                color: {Colors.PRIMARY_DARK};
-                font-weight: 600;
-                border-left: 3px solid {Colors.PRIMARY};
-            }}
-        """)
-
-        # Build grouped navigation sidebar.
-        # Tuples: (label, icon_name, stack_index).  Stack indices are fixed by
-        # the order in which widgets are added to QStackedWidget (see below).
-        self._nav_to_stack: dict[int, int] = {}
-        self._stack_to_nav: dict[int, int] = {}
-        nav_sections = [
-            ("Tracers", [
-                ("Systrace", "systrace", 1),
-                ("Perfetto", "perfetto", 2),
-                ("Simpleperf", "simpleperf", 3),
-                ("Traceview", "traceview", 4),
-                ("Combo", "combo", 5),
-            ]),
-            ("System", [
-                ("Device", "device", 0),
-                ("Settings", "settings", 6),
-                ("About", "about", 7),
-            ]),
-        ]
-        nav_row = 0
-        for section_title, items in nav_sections:
-            if section_title:
-                header = QtWidgets.QListWidgetItem(f"  {section_title.upper()}")
-                header.setFlags(QtCore.Qt.NoItemFlags)
-                font = header.font()
-                font.setPointSize(max(font.pointSize() - 2, 7))
-                font.setBold(True)
-                header.setFont(font)
-                header.setForeground(QtGui.QColor(Colors.NEUTRAL_500))
-                self.nav_list.addItem(header)
-                nav_row += 1
-            for label, icon_name, stk_idx in items:
-                icon = load_icon(icon_name)
-                item = QtWidgets.QListWidgetItem(icon, label)
-                item.setData(QtCore.Qt.UserRole, label)
-                self.nav_list.addItem(item)
-                self._nav_to_stack[nav_row] = stk_idx
-                self._stack_to_nav[stk_idx] = nav_row
-                nav_row += 1
-
+    def _build_stack(self) -> None:
         self.stack = QtWidgets.QStackedWidget()
+        self.stack.setObjectName("contentStack")
 
-        # Panels are created lazily to reduce cold-start time of the packaged EXE.
-        # Stack indices: 0 Device, 1 Systrace, 2 Perfetto, 3 Simpleperf,
-        #                4 Traceview, 5 Combo, 6 Settings, 7 About
-        self.device_panel = DevicePanel()
-        self.systrace_panel = None
-        self.perfetto_panel = None
-        self.simpleperf_panel = None
-        self.traceview_panel = None
-        self.combo_panel = None
-        self.settings_panel = SettingsPanel(config_service)
-        self.about_panel = AboutPanel()
+        self.device_panel = self._prepare_panel(DevicePanel(), 0)
+        self.systrace_panel: Optional[QtWidgets.QWidget] = None
+        self.perfetto_panel: Optional[QtWidgets.QWidget] = None
+        self.simpleperf_panel: Optional[QtWidgets.QWidget] = None
+        self.traceview_panel: Optional[QtWidgets.QWidget] = None
+        self.combo_panel: Optional[QtWidgets.QWidget] = None
+        self.settings_panel = self._prepare_panel(SettingsPanel(self.config_service), 6)
+        self.about_panel = self._prepare_panel(AboutPanel(), 7)
 
         self._lazy_placeholders: dict[int, Optional[QtWidgets.QWidget]] = {}
         self._lazy_builders: dict[int, PanelFactory] = {
@@ -210,92 +174,249 @@ class MainWindow(QtWidgets.QMainWindow):
             5: self._build_combo_panel,
         }
 
-        self.stack.addWidget(self.device_panel)  # index 0
-        for idx in range(1, 6):
+        self.stack.addWidget(self.device_panel)
+        for index in range(1, 6):
             placeholder = QtWidgets.QWidget()
-            self._lazy_placeholders[idx] = placeholder
+            placeholder.setProperty("panel_key", PANEL_KEYS[index])
+            self._lazy_placeholders[index] = placeholder
             self.stack.addWidget(placeholder)
-        self.stack.addWidget(self.settings_panel)  # index 6
-        self.stack.addWidget(self.about_panel)  # index 7
+        self.stack.addWidget(self.settings_panel)
+        self.stack.addWidget(self.about_panel)
 
-        self.nav_list.currentRowChanged.connect(self._on_nav_changed)
-        self.nav_list.setCurrentRow(self._stack_to_nav.get(0, 0))
+    def _build_shell(self) -> None:
+        central = QtWidgets.QWidget()
+        central.setObjectName("prototypeShell")
+
+        self.primary_toolbar_row = QtWidgets.QWidget()
+        self.primary_toolbar_row.setObjectName("primaryToolbarRow")
+        primary_layout = QtWidgets.QHBoxLayout(self.primary_toolbar_row)
+        primary_layout.setContentsMargins(16, 8, 16, 8)
+        primary_layout.setSpacing(12)
+        primary_layout.addWidget(self.device_label)
+        primary_layout.addWidget(self.device_combo)
+        primary_layout.addWidget(self.refresh_button)
+        primary_layout.addWidget(self.toolbar_separator)
+        primary_layout.addWidget(self.record_button)
+        primary_layout.addStretch(1)
+
+        self.secondary_toolbar_row = QtWidgets.QWidget()
+        self.secondary_toolbar_row.setObjectName("secondaryToolbarRow")
+        secondary_layout = QtWidgets.QHBoxLayout(self.secondary_toolbar_row)
+        secondary_layout.setContentsMargins(16, 4, 16, 8)
+        secondary_layout.setSpacing(12)
+        secondary_layout.addWidget(self.aux_label)
+        secondary_layout.addWidget(self.logcat_cb)
+        secondary_layout.addWidget(self.packages_cb)
+        secondary_layout.addWidget(self.ps_cb)
+        secondary_layout.addWidget(self.meminfo_cb)
+        secondary_layout.addStretch(1)
+
+        self.sidebar_nav = QtWidgets.QFrame()
+        self.sidebar_nav.setObjectName("sidebarNav")
+        self.sidebar_nav.setFixedWidth(160)
+        sidebar_layout = QtWidgets.QVBoxLayout(self.sidebar_nav)
+        sidebar_layout.setContentsMargins(0, 8, 0, 8)
+        sidebar_layout.setSpacing(0)
+        for section_title, items in NAV_SECTIONS:
+            self._add_nav_section(sidebar_layout, section_title, items)
+        sidebar_layout.addStretch(1)
+
+        self.content_stack_host = QtWidgets.QFrame()
+        self.content_stack_host.setObjectName("contentStackHost")
+        content_layout = QtWidgets.QVBoxLayout(self.content_stack_host)
+        content_layout.setContentsMargins(16, 16, 16, 16)
+        content_layout.setSpacing(0)
+        content_layout.addWidget(self.stack, 1)
+
+        self.main_column = QtWidgets.QWidget()
+        self.main_column.setObjectName("mainColumn")
+        main_column_layout = QtWidgets.QVBoxLayout(self.main_column)
+        main_column_layout.setContentsMargins(0, 0, 0, 0)
+        main_column_layout.setSpacing(0)
+        main_column_layout.addWidget(self.content_stack_host, 1)
+
+        body = QtWidgets.QWidget()
+        body_layout = QtWidgets.QHBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
+        body_layout.addWidget(self.sidebar_nav)
+        body_layout.addWidget(self.main_column, 1)
 
         self.log_panel = LogPanel()
-        self._qt_log_handler = logging_bridge.install_qt_logging(self.log_panel.append)
-        self._qt_stdio_bridge = logging_bridge.install_qt_stdio(
-            self.log_panel.append_stream
-        )
+        main_column_layout.addWidget(self.log_panel)
 
-        central = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(central)
+        shell_layout = QtWidgets.QVBoxLayout(central)
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+        shell_layout.setSpacing(0)
+        shell_layout.addWidget(self.primary_toolbar_row)
+        shell_layout.addWidget(self.secondary_toolbar_row)
+        shell_layout.addWidget(body, 1)
 
-        body_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
-        body_splitter.addWidget(self.nav_list)
-        body_splitter.addWidget(self.stack)
-        body_splitter.setStretchFactor(0, 0)
-        body_splitter.setStretchFactor(1, 1)
-
-        log_widget = QtWidgets.QWidget()
-        log_layout = QtWidgets.QVBoxLayout(log_widget)
-        log_layout.setContentsMargins(0, 0, 0, 0)
-        log_layout.addWidget(QtWidgets.QLabel("Output Log"))
-        log_layout.addWidget(self.log_panel, 1)
-
-        self.main_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
-        self.main_splitter.addWidget(body_splitter)
-        self.main_splitter.addWidget(log_widget)
-        # Make the log area at least half by default (user can still drag to resize).
-        self.main_splitter.setStretchFactor(0, 1)
-        self.main_splitter.setStretchFactor(1, 1)
-        self.main_splitter.setCollapsible(1, True)
-
-        layout.addWidget(self.main_splitter, 1)
-
+        central.setStyleSheet(self._shell_stylesheet())
         self.setCentralWidget(central)
 
-        # After first show/layout, apply a reasonable default splitter size.
-        QtCore.QTimer.singleShot(0, self._init_splitter_sizes)
+    def _build_status_bar(self) -> None:
+        self.status_bar = QtWidgets.QStatusBar()
+        self.status_bar.setObjectName("statusBarContainer")
+        self.status_bar.setSizeGripEnabled(False)
+        self.setStatusBar(self.status_bar)
 
-        # Apply settings at runtime (adb path, output dir) without restart.
-        self.settings_panel.settings_saved.connect(self._apply_runtime_settings)
+        self.status_progress = QtWidgets.QProgressBar()
+        self.status_progress.setObjectName("statusProgress")
+        self.status_progress.setMaximumWidth(220)
+        self.status_progress.setVisible(False)
+        self.status_progress.setRange(0, 0)
+        self.status_progress.setTextVisible(True)
+        self.status_bar.addPermanentWidget(self.status_progress)
+        self.status_bar.showMessage("Ready.")
 
-        if auto_refresh_devices:
-            QtCore.QTimer.singleShot(0, self.refresh_devices)
+    def _shell_stylesheet(self) -> str:
+        return f"""
+        QWidget#prototypeShell {{
+            background-color: {Colors.SURFACE};
+            color: {Colors.NEUTRAL_900};
+        }}
+
+        QWidget#primaryToolbarRow {{
+            background-color: {Colors.NEUTRAL_100};
+            border-bottom: 1px solid {Colors.NEUTRAL_300};
+        }}
+
+        QWidget#secondaryToolbarRow {{
+            background-color: {Colors.NEUTRAL_50};
+            border-bottom: 1px solid {Colors.NEUTRAL_300};
+        }}
+
+        QFrame#toolbarSeparator {{
+            background-color: {Colors.NEUTRAL_300};
+        }}
+
+        QLabel[toolbarLabel="true"] {{
+            color: {Colors.NEUTRAL_700};
+            font-size: {Typography.SIZE_BODY}px;
+            font-weight: 600;
+        }}
+
+        QLabel[captionLabel="true"] {{
+            color: {Colors.NEUTRAL_600};
+            font-size: {Typography.SIZE_CAPTION}px;
+        }}
+
+        QFrame#sidebarNav {{
+            background-color: {Colors.SURFACE};
+            border-right: 1px solid {Colors.NEUTRAL_300};
+        }}
+
+        QLabel#navSectionTracers,
+        QLabel#navSectionSystem {{
+            color: {Colors.NEUTRAL_500};
+            font-size: {Typography.SIZE_CAPTION}px;
+            font-weight: 600;
+            padding: 12px 16px 4px 16px;
+        }}
+
+        QPushButton[navButton="true"] {{
+            border: none;
+            border-left: 3px solid transparent;
+            border-radius: 0;
+            padding: 8px 16px;
+            text-align: left;
+            color: {Colors.NEUTRAL_800};
+            background-color: transparent;
+            font-size: {Typography.SIZE_BODY}px;
+            font-weight: 500;
+        }}
+
+        QPushButton[navButton="true"]:hover {{
+            background-color: {Colors.NEUTRAL_100};
+        }}
+
+        QPushButton[navButton="true"]:checked {{
+            background-color: #e3f2fd;
+            border-left: 3px solid {Colors.PRIMARY};
+            color: {Colors.PRIMARY_DARK};
+            font-weight: 600;
+        }}
+
+        QPushButton[navButton="true"][busy="true"] {{
+            color: {Colors.SUCCESS};
+        }}
+
+        QFrame#contentStackHost {{
+            background-color: {Colors.SURFACE};
+        }}
+        """
+
+    def _add_nav_section(
+        self,
+        layout: QtWidgets.QVBoxLayout,
+        title: str,
+        items: list[tuple[str, str, int]],
+    ) -> None:
+        header = QtWidgets.QLabel(title.upper())
+        header.setObjectName(f"navSection{title}")
+        layout.addWidget(header)
+
+        for label, icon_name, stack_index in items:
+            button = QtWidgets.QPushButton(label)
+            button.setProperty("navButton", True)
+            button.setCheckable(True)
+            button.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+            button.setIcon(load_icon(icon_name))
+            button.setIconSize(QtCore.QSize(18, 18))
+            button.clicked.connect(lambda checked=False, idx=stack_index: self._activate_stack_index(idx))
+            self._nav_buttons[stack_index] = button
+            self._nav_base_text[stack_index] = label
+            layout.addWidget(button)
+
+    def _prepare_panel(self, panel: QtWidgets.QWidget, index: int) -> QtWidgets.QWidget:
+        key = PANEL_KEYS[index]
+        panel.setProperty("panel_key", key)
+        panel.setObjectName(f"panel_{key}")
+        return panel
 
     def _ensure_panel(self, index: int) -> QtWidgets.QWidget:
-        """Ensure the panel widget for a given stack index exists.
-
-        We keep QStackedWidget indices stable by swapping a lightweight placeholder
-        with the real panel on first access.
-        """
         builder = self._lazy_builders.get(index)
         if builder is None:
             return self.stack.widget(index)
 
         placeholder = self._lazy_placeholders.get(index)
         if placeholder is None:
-            # Already swapped.
             return self.stack.widget(index)
 
-        panel = builder()
+        panel = self._prepare_panel(builder(), index)
         self.stack.removeWidget(placeholder)
         placeholder.deleteLater()
         self.stack.insertWidget(index, panel)
         self._lazy_placeholders[index] = None
 
-        # Connect busy badge to sidebar — persists across panel switches.
         if isinstance(panel, BasePanel):
-            nav_row = self._stack_to_nav.get(index)
-            if nav_row is not None:
-                panel.busy_changed.connect(
-                    lambda busy, r=nav_row: self._update_nav_badge(r, busy)
-                )
-
+            panel.busy_changed.connect(
+                lambda busy, stack_index=index: self._update_nav_badge(stack_index, busy)
+            )
         return panel
 
     def _current_device_serial(self) -> Optional[str]:
         return self.current_device.serial if self.current_device else None
+
+    def _selected_device(self) -> Optional[Device]:
+        if not self._devices:
+            return None
+        data = self.device_combo.currentData()
+        if isinstance(data, Device):
+            return data
+        index = self.device_combo.currentIndex()
+        if index < 0 or index >= len(self._devices):
+            return None
+        return self._devices[index]
+
+    def _output_options(self) -> dict[str, bool]:
+        return {
+            "logcat": self.logcat_cb.isChecked(),
+            "packages": self.packages_cb.isChecked(),
+            "ps": self.ps_cb.isChecked(),
+            "meminfo": self.meminfo_cb.isChecked(),
+        }
 
     def _build_systrace_panel(self) -> QtWidgets.QWidget:
         from easy_tracer.ui.panels.systrace_panel import SystracePanel
@@ -305,7 +426,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._current_device_serial(),
             self.config_service.output_dir,
         )
-        panel.set_auxiliary_options(self.device_toolbar.output_options())
+        panel.set_auxiliary_options(self._output_options())
         self._bind_shared_output_dir(panel)
         self.systrace_panel = panel
         return panel
@@ -318,7 +439,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._current_device_serial(),
             self.config_service.output_dir,
         )
-        panel.set_auxiliary_options(self.device_toolbar.output_options())
+        panel.set_auxiliary_options(self._output_options())
         self._bind_shared_output_dir(panel)
         self.perfetto_panel = panel
         return panel
@@ -331,7 +452,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._current_device_serial(),
             self.config_service.output_dir,
         )
-        panel.set_auxiliary_options(self.device_toolbar.output_options())
+        panel.set_auxiliary_options(self._output_options())
         self._bind_shared_output_dir(panel)
         self.simpleperf_panel = panel
         return panel
@@ -344,7 +465,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._current_device_serial(),
             self.config_service.output_dir,
         )
-        panel.set_auxiliary_options(self.device_toolbar.output_options())
+        panel.set_auxiliary_options(self._output_options())
         self._bind_shared_output_dir(panel)
         self.traceview_panel = panel
         return panel
@@ -357,7 +478,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._current_device_serial(),
             self.config_service.output_dir,
         )
-        panel.set_auxiliary_options(self.device_toolbar.output_options())
+        panel.set_auxiliary_options(self._output_options())
         self._bind_shared_output_dir(panel)
         self.combo_panel = panel
         return panel
@@ -369,69 +490,58 @@ class MainWindow(QtWidgets.QMainWindow):
         output_path.output_dir_changed.connect(self._on_shared_output_dir_changed)
 
     def warmup_ui(self) -> None:
-        """Eagerly create all lazy panels.
-
-        Intended for build-time warmup runs (to prime OS/AV caches) so that the
-        first interactive launch feels snappy.
-        """
-        for idx in sorted(self._lazy_builders.keys()):
-            self._ensure_panel(idx)
+        for index in sorted(self._lazy_builders.keys()):
+            self._ensure_panel(index)
 
     def _log(self, message: str) -> None:
         self.log_panel.append(message)
 
-    def _init_splitter_sizes(self) -> None:
-        # Give more space to the log area (top: 300, bottom: remaining ~480)
-        try:
-            self.main_splitter.setSizes([500, 300])
-        except Exception:
-            pass
-
-    def _on_nav_changed(self, index: int) -> None:
-        if index < 0:
-            return
-
-        stack_idx = self._nav_to_stack.get(index)
-        if stack_idx is None:
-            return  # Section header — not navigable
-
-        # Disconnect old panel signals if it was a BasePanel
+    def _activate_stack_index(self, index: int) -> None:
         current = self.stack.currentWidget()
         if isinstance(current, BasePanel):
-            try:
-                current.readiness_changed.disconnect(self._update_start_button)
-                current.busy_changed.disconnect(self._update_busy_state)
-                current.status_message.disconnect(self.status_bar.showMessage)
-                current.error_message.disconnect(self._show_error)
-                current.capture_started.disconnect(self._on_capture_started)
-            except RuntimeError:
-                pass  # Already disconnected or destroyed
+            self._disconnect_panel_signals(current)
 
-        new_panel = self._ensure_panel(stack_idx)
+        new_panel = self._ensure_panel(index)
         self.stack.setCurrentWidget(new_panel)
+        self._set_active_nav(index)
 
-        # Default state
         self._current_ready = False
         self._current_busy = False
-        self._update_record_button_state()
-        self.status_bar.showMessage("Ready.")
+        self._capture_duration = 0
+        self._capture_elapsed = 0
         self.status_progress.setVisible(False)
+        self.status_bar.showMessage("Ready.")
+        self._update_record_button_state()
 
         if isinstance(new_panel, BasePanel):
-            new_panel.readiness_changed.connect(self._update_start_button)
-            new_panel.busy_changed.connect(self._update_busy_state)
-            new_panel.status_message.connect(self.status_bar.showMessage)
-            new_panel.error_message.connect(self._show_error)
-            new_panel.capture_started.connect(self._on_capture_started)
-
-            # Initialize state from new panel
+            self._connect_panel_signals(new_panel)
             self._update_start_button(new_panel.is_ready())
-            # We assume panels aren't busy when switched to, or they update state immediately
 
-        # Ensure device is propagated
         if hasattr(new_panel, "update_device"):
-            serial = self.current_device.serial if self.current_device else None
-            new_panel.update_device(serial)
+            new_panel.update_device(self._current_device_serial())
+
+    def _set_active_nav(self, active_index: int) -> None:
+        for stack_index, button in self._nav_buttons.items():
+            button.blockSignals(True)
+            button.setChecked(stack_index == active_index)
+            button.blockSignals(False)
+
+    def _connect_panel_signals(self, panel: BasePanel) -> None:
+        panel.readiness_changed.connect(self._update_start_button)
+        panel.busy_changed.connect(self._update_busy_state)
+        panel.status_message.connect(self.status_bar.showMessage)
+        panel.error_message.connect(self._show_error)
+        panel.capture_started.connect(self._on_capture_started)
+
+    def _disconnect_panel_signals(self, panel: BasePanel) -> None:
+        try:
+            panel.readiness_changed.disconnect(self._update_start_button)
+            panel.busy_changed.disconnect(self._update_busy_state)
+            panel.status_message.disconnect(self.status_bar.showMessage)
+            panel.error_message.disconnect(self._show_error)
+            panel.capture_started.disconnect(self._on_capture_started)
+        except (RuntimeError, TypeError):
+            pass
 
     def _update_start_button(self, ready: bool) -> None:
         self._current_ready = ready
@@ -442,6 +552,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if busy and self._capture_duration > 0:
             self.status_progress.setRange(0, self._capture_duration)
             self.status_progress.setValue(0)
+            self.status_progress.setFormat(f"0s / {self._capture_duration}s")
             self.status_progress.setVisible(True)
             self._countdown_timer.start()
         elif busy:
@@ -458,24 +569,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self._capture_duration = duration
         self._capture_elapsed = 0
 
-    def _update_nav_badge(self, row: int, busy: bool) -> None:
-        item = self.nav_list.item(row)
-        if item is None:
+    def _update_nav_badge(self, stack_index: int, busy: bool) -> None:
+        button = self._nav_buttons.get(stack_index)
+        if button is None:
             return
-        base_text = item.data(QtCore.Qt.UserRole)
-        if base_text is None:
-            return
-        if busy:
-            item.setText(f"\u25cf {base_text}")
-            item.setForeground(QtGui.QColor(Colors.SUCCESS))
-        else:
-            item.setText(base_text)
-            item.setForeground(QtGui.QColor(Colors.NEUTRAL_800))
+        button.setProperty("busy", busy)
+        base_text = self._nav_base_text.get(stack_index, button.text())
+        button.setText(f"● {base_text}" if busy else base_text)
+        button.style().unpolish(button)
+        button.style().polish(button)
+        button.update()
 
     def _on_countdown_tick(self) -> None:
         self._capture_elapsed += 1
         if self._capture_elapsed <= self._capture_duration:
             self.status_progress.setValue(self._capture_elapsed)
+            self.status_progress.setFormat(
+                f"{self._capture_elapsed}s / {self._capture_duration}s"
+            )
         self.status_bar.showMessage(
             f"Recording... {self._capture_elapsed}s / {self._capture_duration}s"
         )
@@ -527,7 +638,6 @@ class MainWindow(QtWidgets.QMainWindow):
         QtCore.QThreadPool.globalInstance().start(worker)
 
     def _run_refresh_devices(self) -> List[Device]:
-        """Run in worker thread: single adb devices -l call."""
         return self.presenter.get_devices()
 
     def _on_refresh_finished(self) -> None:
@@ -537,21 +647,32 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.QTimer.singleShot(0, self.refresh_devices)
 
     def _on_devices_loaded(self, devices: List[Device]) -> None:
-        self.device_toolbar.set_devices(devices)
+        self._devices = devices
+        self.device_combo.blockSignals(True)
+        self.device_combo.clear()
+        if not devices:
+            self.device_combo.addItem("No devices")
+        else:
+            for device in devices:
+                self.device_combo.addItem(str(device), device)
+        self.device_combo.blockSignals(False)
+        self._on_device_selection_changed(self.device_combo.currentIndex())
         self.device_panel.set_devices(devices)
         self._log(f"Found {len(devices)} device(s).")
 
     def _on_devices_error(self, message: str) -> None:
         self._log(f"Device refresh failed: {message}")
 
+    def _on_device_selection_changed(self, _index: int) -> None:
+        self._on_device_changed(self._selected_device())
+
     def _on_device_changed(self, device: Optional[Device]) -> None:
         self.current_device = device
         self.presenter.on_device_selected(device)
         self.device_panel.set_selected_device(device)
-        serial = device.serial if device else None
+        serial = self._current_device_serial()
 
-        # Propagate to all known panels once each.
-        panels = []
+        panels: list[QtWidgets.QWidget] = []
         current = self.stack.currentWidget()
         if hasattr(current, "update_device"):
             panels.append(current)
@@ -574,11 +695,11 @@ class MainWindow(QtWidgets.QMainWindow):
             panel.update_device(serial)
 
     def _on_options_changed(self) -> None:
-        opts = self.device_toolbar.output_options()
-        enabled = [name for name, flag in opts.items() if flag]
-        self._log(f"附加输出选项: {', '.join(enabled) if enabled else 'None'}")
-
-        # Propagate auxiliary options to all panels
+        options = self._output_options()
+        enabled = [name for name, flag in options.items() if flag]
+        self._log(
+            f"Capture extras: {', '.join(enabled) if enabled else 'none'}"
+        )
         for panel in (
             self.systrace_panel,
             self.perfetto_panel,
@@ -587,11 +708,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.combo_panel,
         ):
             if panel is not None and hasattr(panel, "set_auxiliary_options"):
-                panel.set_auxiliary_options(opts)
+                panel.set_auxiliary_options(options)
 
     def _apply_adb_path(self, adb_path: str) -> None:
-        # Update adb path - all adapters share the same AdbHelper instance via device_service.
-        # Updating it once propagates to all.
         try:
             self.presenter.device_service.adb_adapter.adb_path = adb_path
         except Exception:
@@ -600,7 +719,6 @@ class MainWindow(QtWidgets.QMainWindow):
     def _set_panel_output_dir(self, panel: Optional[QtWidgets.QWidget], output_dir: str) -> None:
         if panel is None:
             return
-
         setter = getattr(panel, "set_output_dir", None)
         if callable(setter):
             try:
@@ -644,7 +762,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._set_panel_output_dir(self.traceview_panel, output_dir)
         self._set_panel_output_dir(self.combo_panel, output_dir)
 
-        # Combo uses sub-services, but keep its base dir consistent.
         try:
             self.combo_presenter.combo_service.output_dir = output_dir
         except Exception:
@@ -659,7 +776,6 @@ class MainWindow(QtWidgets.QMainWindow):
         output_dir = (output_dir or "").strip()
         if not output_dir:
             return
-
         self.config_service.update(
             adb_path=self.config_service.adb_path,
             output_dir=output_dir,
@@ -670,6 +786,5 @@ class MainWindow(QtWidgets.QMainWindow):
     def _apply_runtime_settings(self, adb_path: str, output_dir: str) -> None:
         self._apply_adb_path(adb_path)
         self._apply_output_dir(output_dir)
-
         self._log(f"Settings applied: adb={adb_path}, output={output_dir}")
         QtCore.QTimer.singleShot(0, self.refresh_devices)

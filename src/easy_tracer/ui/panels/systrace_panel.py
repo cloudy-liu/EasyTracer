@@ -129,6 +129,7 @@ class SystracePanel(BasePanel):
         self.custom_duration.setValue(5)
         self.custom_duration.setSuffix(" s")
         self.custom_duration.setEnabled(False)
+        self.custom_duration.setVisible(False)
         duration_layout.addWidget(self.custom_duration)
 
         config_layout.addWidget(duration_widget, 0, 1)
@@ -155,6 +156,7 @@ class SystracePanel(BasePanel):
         self.custom_target = QtWidgets.QLineEdit()
         self.custom_target.setPlaceholderText("com.example.app")
         self.custom_target.setEnabled(False)
+        self.custom_target.setVisible(False)
         self.custom_target.setMinimumWidth(140)
         target_layout.addWidget(self.custom_target)
 
@@ -184,7 +186,8 @@ class SystracePanel(BasePanel):
         )
         output_layout.addWidget(self.output_path, 1)
 
-        self.open_output_btn = QtWidgets.QPushButton("📂")
+        self.open_output_btn = QtWidgets.QPushButton()
+        self.open_output_btn.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DirOpenIcon))
         self.open_output_btn.setToolTip("Open output directory")
         self.open_output_btn.setMaximumWidth(36)
         self.open_output_btn.clicked.connect(self._on_open_output)
@@ -227,10 +230,14 @@ class SystracePanel(BasePanel):
     # =========================================================================
 
     def _toggle_custom_duration(self, text: str) -> None:
-        self.custom_duration.setEnabled(text == "Custom")
+        is_custom = text == "Custom"
+        self.custom_duration.setEnabled(is_custom)
+        self.custom_duration.setVisible(is_custom)
 
     def _toggle_custom_target(self, text: str) -> None:
-        self.custom_target.setEnabled(text == "Custom Package")
+        is_custom = text == "Custom Package"
+        self.custom_target.setEnabled(is_custom)
+        self.custom_target.setVisible(is_custom)
 
     def _on_open_output(self) -> None:
         output_dir = self.output_path.output_dir()

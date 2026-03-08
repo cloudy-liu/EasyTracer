@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 from PySide6 import QtCore, QtWidgets
 
 
@@ -9,19 +10,25 @@ class OutputPathWidget(QtWidgets.QWidget):
 
     def __init__(self, default_path: str, *, label: str = "Output:", editable: bool = True, tooltip: str | None = None):
         super().__init__()
+        self.setObjectName("outputPathWidget")
         self.path_input = QtWidgets.QLineEdit(default_path)
         self._last_emitted_output_dir = (default_path or "").strip()
         self.path_input.setPlaceholderText("Output Directory")
         if tooltip:
             self.path_input.setToolTip(tooltip)
+
+        self.label = QtWidgets.QLabel(label)
+        self.label.setProperty("toolbarLabel", True)
+
         self.browse_button = QtWidgets.QToolButton()
-        self.browse_button.setText("...")
-        self.browse_button.setToolTip("Browse")
+        self.browse_button.setText("…")
+        self.browse_button.setToolTip("Browse for directory")
+        self.browse_button.setFixedWidth(32)
 
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        layout.addWidget(QtWidgets.QLabel(label))
+        layout.addWidget(self.label)
         layout.addWidget(self.path_input, 1)
         layout.addWidget(self.browse_button)
 

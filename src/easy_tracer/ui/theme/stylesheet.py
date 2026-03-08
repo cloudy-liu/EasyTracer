@@ -7,7 +7,8 @@ Philosophy: Generate styles programmatically for consistency.
 All visual constants flow from tokens.py.
 """
 
-from easy_tracer.ui.theme.tokens import Colors, Spacing, Dimensions
+from easy_tracer.assets import icon_path
+from easy_tracer.ui.theme.tokens import Colors, Spacing, Dimensions, Typography
 
 
 # =============================================================================
@@ -81,13 +82,20 @@ def generate_app_stylesheet() -> str:
     Returns:
         Complete QSS string to apply to QApplication
     """
+    combo_arrow = icon_path("chevron-down")
+    check_icon = icon_path("check-white")
+    combo_arrow_url = str(combo_arrow).replace("\\", "/") if combo_arrow else ""
+    check_icon_url = str(check_icon).replace("\\", "/") if check_icon else ""
+
     return f"""
         /* ===================================================================
          * BASE STYLES
          * =================================================================== */
 
         QWidget {{
-            font-size: 13px;
+            font-family: {Typography.FONT_UI};
+            font-size: {Typography.SIZE_BODY}px;
+            color: {Colors.NEUTRAL_900};
         }}
 
         /* ===================================================================
@@ -95,18 +103,22 @@ def generate_app_stylesheet() -> str:
          * =================================================================== */
 
         QGroupBox {{
-            font-weight: 600;
+            background-color: {Colors.SURFACE};
             border: 1px solid {Colors.NEUTRAL_300};
             border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
-            margin-top: 12px;
-            padding-top: 8px;
+            font-weight: 600;
+            margin-top: 14px;
+            padding: {Spacing.LG}px {Spacing.XL}px {Spacing.XL}px {Spacing.XL}px;
+            padding-top: {Spacing.XL}px;
         }}
 
         QGroupBox::title {{
             subcontrol-origin: margin;
             subcontrol-position: top left;
+            left: {Spacing.LG}px;
             padding: 0 {Spacing.SM}px;
             color: {Colors.NEUTRAL_700};
+            background-color: {Colors.SURFACE};
         }}
 
         /* ===================================================================
@@ -119,6 +131,7 @@ def generate_app_stylesheet() -> str:
             border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
             background-color: {Colors.SURFACE};
             min-height: 24px;
+            font-weight: 500;
         }}
 
         QPushButton:hover {{
@@ -139,6 +152,18 @@ def generate_app_stylesheet() -> str:
         QPushButton:focus {{
             border-color: {Colors.PRIMARY};
             outline: none;
+        }}
+
+        QToolButton {{
+            padding: {Spacing.SM}px {Spacing.MD}px;
+            border: 1px solid {Colors.NEUTRAL_300};
+            border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
+            background-color: {Colors.SURFACE};
+        }}
+
+        QToolButton:hover {{
+            background-color: {Colors.NEUTRAL_100};
+            border-color: {Colors.NEUTRAL_400};
         }}
 
         /* ===================================================================
@@ -182,7 +207,7 @@ def generate_app_stylesheet() -> str:
          * =================================================================== */
 
         QComboBox {{
-            padding: {Spacing.SM}px {Spacing.MD}px;
+            padding: {Spacing.SM}px 28px {Spacing.SM}px {Spacing.MD}px;
             border: 1px solid {Colors.NEUTRAL_300};
             border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
             background-color: {Colors.SURFACE};
@@ -201,14 +226,14 @@ def generate_app_stylesheet() -> str:
             subcontrol-position: right center;
             subcontrol-origin: padding;
             width: 24px;
-            border-left: 1px solid {Colors.NEUTRAL_300};
-            border-top-right-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
-            border-bottom-right-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
+            border: none;
+            padding-right: {Spacing.MD}px;
         }}
 
         QComboBox::down-arrow {{
+            image: url({combo_arrow_url});
             width: 10px;
-            height: 10px;
+            height: 6px;
         }}
 
         QComboBox QAbstractItemView {{
@@ -239,10 +264,11 @@ def generate_app_stylesheet() -> str:
          * =================================================================== */
 
         QSpinBox {{
-            padding: {Spacing.SM}px;
+            padding: {Spacing.SM}px {Spacing.MD}px;
             border: 1px solid {Colors.NEUTRAL_300};
             border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
             background-color: {Colors.SURFACE};
+            min-height: 28px;
         }}
 
         QSpinBox:hover {{
@@ -264,6 +290,25 @@ def generate_app_stylesheet() -> str:
         QCheckBox::indicator {{
             width: 16px;
             height: 16px;
+            border: 1px solid {Colors.NEUTRAL_400};
+            border-radius: 4px;
+            background-color: {Colors.SURFACE};
+        }}
+
+        QCheckBox::indicator:hover {{
+            border-color: {Colors.PRIMARY};
+            background-color: #e3f2fd;
+        }}
+
+        QCheckBox::indicator:checked {{
+            background-color: {Colors.PRIMARY};
+            border-color: {Colors.PRIMARY};
+            image: url({check_icon_url});
+        }}
+
+        QCheckBox::indicator:disabled {{
+            background-color: {Colors.NEUTRAL_100};
+            border-color: {Colors.NEUTRAL_300};
         }}
 
         /* ===================================================================
@@ -383,6 +428,24 @@ def generate_app_stylesheet() -> str:
             selection-background-color: {Colors.PRIMARY_LIGHT};
         }}
 
+        QTableWidget {{
+            border: 1px solid {Colors.NEUTRAL_300};
+            border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
+            background-color: {Colors.SURFACE};
+            gridline-color: {Colors.NEUTRAL_300};
+            selection-background-color: #e3f2fd;
+            selection-color: {Colors.NEUTRAL_900};
+        }}
+
+        QHeaderView::section {{
+            background-color: {Colors.NEUTRAL_100};
+            color: {Colors.NEUTRAL_700};
+            padding: {Spacing.MD}px;
+            border: none;
+            border-bottom: 1px solid {Colors.NEUTRAL_300};
+            font-weight: 600;
+        }}
+
         /* ===================================================================
          * SCROLL BAR
          * =================================================================== */
@@ -448,6 +511,11 @@ def generate_app_stylesheet() -> str:
         QStatusBar {{
             background-color: {Colors.NEUTRAL_100};
             border-top: 1px solid {Colors.NEUTRAL_300};
+            padding: 2px {Spacing.MD}px;
+        }}
+
+        QStatusBar::item {{
+            border: none;
         }}
 
         /* ===================================================================
@@ -459,6 +527,7 @@ def generate_app_stylesheet() -> str:
             border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
             background-color: {Colors.NEUTRAL_100};
             text-align: center;
+            min-height: 16px;
         }}
 
         QProgressBar::chunk {{
@@ -571,8 +640,8 @@ def deprecation_banner_qss() -> str:
     """Generate QSS for deprecation warning banners."""
     return f"""
         QFrame {{
-            background-color: #fff3e0;
-            border: 1px solid #ffe0b2;
+            background-color: #fff7ed;
+            border: 1px solid #fed7aa;
             border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
         }}
         QFrame QLabel {{
@@ -588,7 +657,7 @@ def info_card_qss() -> str:
     return f"""
         QFrame {{
             background-color: {Colors.NEUTRAL_50};
-            border: 1px solid {Colors.NEUTRAL_200};
+            border: 1px solid {Colors.NEUTRAL_300};
             border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
         }}
         QFrame QLabel {{
@@ -603,8 +672,8 @@ def result_card_qss() -> str:
     """Generate QSS for capture result summary cards."""
     return f"""
         QFrame {{
-            background-color: #e8f5e9;
-            border: 1px solid #c8e6c9;
+            background-color: #eef7ef;
+            border: 1px solid #cfe6d2;
             border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
         }}
         QFrame QLabel {{

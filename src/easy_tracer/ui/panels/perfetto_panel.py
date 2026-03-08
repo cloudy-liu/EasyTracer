@@ -128,7 +128,8 @@ class PerfettoPanel(BasePanel):
         )
         row2.addWidget(self.output_path, 1)
 
-        self.open_output_btn = QtWidgets.QPushButton("📂")
+        self.open_output_btn = QtWidgets.QPushButton()
+        self.open_output_btn.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DirOpenIcon))
         self.open_output_btn.setToolTip("Open output directory")
         self.open_output_btn.setMaximumWidth(36)
         self.open_output_btn.clicked.connect(self._on_open_output)

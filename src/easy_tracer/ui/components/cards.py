@@ -36,13 +36,14 @@ class DeprecationBanner(QtWidgets.QFrame):
         parent: Optional[QtWidgets.QWidget] = None,
     ):
         super().__init__(parent)
+        self.setObjectName("deprecationBanner")
         self.setStyleSheet(deprecation_banner_qss())
 
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(Spacing.LG, Spacing.MD, Spacing.LG, Spacing.MD)
         layout.setSpacing(Spacing.MD)
 
-        icon = QtWidgets.QLabel("\u26a0")
+        icon = QtWidgets.QLabel("⚠")
         icon.setStyleSheet(f"font-size: 16px; color: {Colors.WARNING_DARK};")
         layout.addWidget(icon)
 
@@ -76,6 +77,7 @@ class InfoCard(QtWidgets.QFrame):
         parent: Optional[QtWidgets.QWidget] = None,
     ):
         super().__init__(parent)
+        self.setObjectName("infoCard")
         self.setStyleSheet(info_card_qss())
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -113,6 +115,7 @@ class ResultCard(QtWidgets.QFrame):
 
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent)
+        self.setObjectName("resultCard")
         self.setStyleSheet(result_card_qss())
         self.setVisible(False)
 

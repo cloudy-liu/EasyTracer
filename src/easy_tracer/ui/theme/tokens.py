@@ -101,9 +101,11 @@ class Spacing:
 class Typography:
     """Typography constants.
 
-    Note: We rely on system fonts for cross-platform consistency.
-    Only specify sizes and weights.
+    Preferred families mirror the HTML prototype, with safe fallbacks.
     """
+
+    FONT_UI = '"IBM Plex Sans", "Segoe UI", sans-serif'
+    FONT_MONO = '"JetBrains Mono", "Cascadia Mono", "Consolas", monospace'
 
     # Sizes (pixels)
     SIZE_CAPTION = 11
@@ -139,8 +141,8 @@ class Dimensions:
     INPUT_MIN_HEIGHT = 28
 
     # Panels
-    NAV_LIST_WIDTH = 150
-    LOG_PANEL_MIN_HEIGHT = 240
+    NAV_LIST_WIDTH = 160
+    LOG_PANEL_MIN_HEIGHT = 220
 
     # Category Grid
     CATEGORY_ITEM_WIDTH = 140
@@ -148,5 +150,5 @@ class Dimensions:
     CATEGORY_GRID_SPACING = 4
 
     # Window
-    WINDOW_DEFAULT_WIDTH = 1100
-    WINDOW_DEFAULT_HEIGHT = 780
+    WINDOW_DEFAULT_WIDTH = 1200
+    WINDOW_DEFAULT_HEIGHT = 820
