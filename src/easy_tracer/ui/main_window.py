@@ -220,6 +220,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.config_service.output_dir,
         )
         panel.set_auxiliary_options(self.device_toolbar.output_options())
+        self._bind_shared_output_dir(panel)
         self.systrace_panel = panel
         return panel
 
@@ -232,6 +233,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.config_service.output_dir,
         )
         panel.set_auxiliary_options(self.device_toolbar.output_options())
+        self._bind_shared_output_dir(panel)
         self.perfetto_panel = panel
         return panel
 
@@ -244,6 +246,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.config_service.output_dir,
         )
         panel.set_auxiliary_options(self.device_toolbar.output_options())
+        self._bind_shared_output_dir(panel)
         self.simpleperf_panel = panel
         return panel
 
@@ -256,6 +259,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.config_service.output_dir,
         )
         panel.set_auxiliary_options(self.device_toolbar.output_options())
+        self._bind_shared_output_dir(panel)
         self.traceview_panel = panel
         return panel
 
@@ -268,8 +272,15 @@ class MainWindow(QtWidgets.QMainWindow):
             self.config_service.output_dir,
         )
         panel.set_auxiliary_options(self.device_toolbar.output_options())
+        self._bind_shared_output_dir(panel)
         self.combo_panel = panel
         return panel
+
+    def _bind_shared_output_dir(self, panel: QtWidgets.QWidget) -> None:
+        output_path = getattr(panel, "output_path", None)
+        if output_path is None or not hasattr(output_path, "output_dir_changed"):
+            return
+        output_path.output_dir_changed.connect(self._on_shared_output_dir_changed)
 
     def warmup_ui(self) -> None:
         """Eagerly create all lazy panels.
@@ -448,7 +459,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if panel is not None and hasattr(panel, "set_auxiliary_options"):
                 panel.set_auxiliary_options(opts)
 
-    def _apply_runtime_settings(self, adb_path: str, output_dir: str) -> None:
+    def _apply_adb_path(self, adb_path: str) -> None:
         # Update adb path - all adapters share the same AdbHelper instance via device_service.
         # Updating it once propagates to all.
         try:
@@ -456,7 +467,27 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception:
             logger.exception("Failed to update adb path")
 
-        # Update output dir defaults in services.
+    def _set_panel_output_dir(self, panel: Optional[QtWidgets.QWidget], output_dir: str) -> None:
+        if panel is None:
+            return
+
+        setter = getattr(panel, "set_output_dir", None)
+        if callable(setter):
+            try:
+                setter(output_dir)
+                return
+            except Exception:
+                pass
+
+        output_path = getattr(panel, "output_path", None)
+        if output_path is None:
+            return
+        try:
+            output_path.set_output_dir(output_dir)
+        except Exception:
+            pass
+
+    def _apply_output_dir(self, output_dir: str) -> None:
         try:
             self.systrace_presenter.capture_service.output_dir = output_dir
         except Exception:
@@ -477,33 +508,38 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception:
             logger.exception("Failed to update output_dir for traceview")
 
-        # Update UI output path widgets (defaults).
-        if self.systrace_panel is not None:
-            try:
-                self.systrace_panel.set_output_dir(output_dir)
-            except Exception:
-                pass
-        if self.perfetto_panel is not None:
-            try:
-                self.perfetto_panel.output_path.set_output_dir(output_dir)
-            except Exception:
-                pass
-        if self.simpleperf_panel is not None:
-            try:
-                self.simpleperf_panel.output_path.set_output_dir(output_dir)
-            except Exception:
-                pass
-        if self.traceview_panel is not None:
-            try:
-                self.traceview_panel.output_path.set_output_dir(output_dir)
-            except Exception:
-                pass
+        self._set_panel_output_dir(self.systrace_panel, output_dir)
+        self._set_panel_output_dir(self.perfetto_panel, output_dir)
+        self._set_panel_output_dir(self.simpleperf_panel, output_dir)
+        self._set_panel_output_dir(self.traceview_panel, output_dir)
+        self._set_panel_output_dir(self.combo_panel, output_dir)
 
         # Combo uses sub-services, but keep its base dir consistent.
         try:
             self.combo_presenter.combo_service.output_dir = output_dir
         except Exception:
             pass
+
+        try:
+            self.settings_panel.output_input.setText(output_dir)
+        except Exception:
+            pass
+
+    def _on_shared_output_dir_changed(self, output_dir: str) -> None:
+        output_dir = (output_dir or "").strip()
+        if not output_dir:
+            return
+
+        self.config_service.update(
+            adb_path=self.config_service.adb_path,
+            output_dir=output_dir,
+        )
+        self._apply_output_dir(self.config_service.output_dir)
+        self._log(f"Output directory updated: {self.config_service.output_dir}")
+
+    def _apply_runtime_settings(self, adb_path: str, output_dir: str) -> None:
+        self._apply_adb_path(adb_path)
+        self._apply_output_dir(output_dir)
 
         self._log(f"Settings applied: adb={adb_path}, output={output_dir}")
         QtCore.QTimer.singleShot(0, self.refresh_devices)

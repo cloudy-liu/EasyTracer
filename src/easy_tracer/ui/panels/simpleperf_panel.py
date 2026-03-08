@@ -72,8 +72,8 @@ class SimpleperfPanel(BasePanel):
         self.output_path = OutputPathWidget(
             default_output_dir,
             label="",
-            editable=False,
-            tooltip="Shared output directory. Edit it in Settings panel.",
+            editable=True,
+            tooltip="Shared output directory. Changes sync across panels.",
         )
 
         self.open_output_btn = QtWidgets.QPushButton("📂")

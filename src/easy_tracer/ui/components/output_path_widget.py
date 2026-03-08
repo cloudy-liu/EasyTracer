@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 
 class OutputPathWidget(QtWidgets.QWidget):
+    output_dir_changed = QtCore.Signal(str)
+
     def __init__(self, default_path: str, *, label: str = "Output:", editable: bool = True, tooltip: str | None = None):
         super().__init__()
         self.path_input = QtWidgets.QLineEdit(default_path)
+        self._last_emitted_output_dir = (default_path or "").strip()
         self.path_input.setPlaceholderText("Output Directory")
         if tooltip:
             self.path_input.setToolTip(tooltip)
@@ -23,6 +26,7 @@ class OutputPathWidget(QtWidgets.QWidget):
         layout.addWidget(self.browse_button)
 
         self.browse_button.clicked.connect(self._on_browse)
+        self.path_input.editingFinished.connect(self._emit_output_dir_changed)
         self.set_editable(editable)
 
     def _on_browse(self) -> None:
@@ -33,6 +37,14 @@ class OutputPathWidget(QtWidgets.QWidget):
         )
         if directory:
             self.path_input.setText(directory)
+            self._emit_output_dir_changed()
+
+    def _emit_output_dir_changed(self) -> None:
+        output_dir = self.output_dir()
+        if not output_dir or output_dir == self._last_emitted_output_dir:
+            return
+        self._last_emitted_output_dir = output_dir
+        self.output_dir_changed.emit(output_dir)
 
     def output_dir(self) -> str:
         return self.path_input.text().strip()
@@ -40,10 +52,11 @@ class OutputPathWidget(QtWidgets.QWidget):
     def set_output_dir(self, path: str) -> None:
         path = (path or "").strip()
         if path:
+            self._last_emitted_output_dir = path
             self.path_input.setText(path)
 
     def set_editable(self, editable: bool) -> None:
-        # When tool panels show output directory, we want it to be shared/global
-        # (edited only in Settings) to avoid duplicated configuration.
+        # Tool panels share one global output directory; editable widgets let the
+        # user change it from any panel while MainWindow keeps everything synced.
         self.path_input.setReadOnly(not editable)
         self.browse_button.setVisible(bool(editable))

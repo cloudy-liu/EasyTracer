@@ -121,8 +121,8 @@ class PerfettoPanel(BasePanel):
         self.output_path = OutputPathWidget(
             self.default_output_dir,
             label="",
-            editable=False,
-            tooltip="Shared output directory. Edit in Settings panel.",
+            editable=True,
+            tooltip="Shared output directory. Changes sync across panels.",
         )
         row2.addWidget(self.output_path, 1)
 
