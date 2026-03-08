@@ -15,7 +15,7 @@ from easy_tracer.presenters.combo_presenter import ComboPresenter
 from easy_tracer.services.config_service import ConfigService
 from easy_tracer.ui.components.device_toolbar import DeviceToolbar
 from easy_tracer.ui.components.log_panel import LogPanel
-from easy_tracer.ui.theme import record_button_qss, Dimensions
+from easy_tracer.ui.theme import record_button_qss, Dimensions, Colors
 from easy_tracer.ui import logging_bridge
 from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.panels.device_panel import DevicePanel
@@ -102,20 +102,48 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QSizePolicy.Fixed,
             QtWidgets.QSizePolicy.Expanding,
         )
-        nav_items = [
-            ("Device", "device"),
-            ("Systrace", "systrace"),
-            ("Perfetto", "perfetto"),
-            ("Simpleperf", "simpleperf"),
-            ("Traceview", "traceview"),
-            ("Combo", "combo"),
-            ("Settings", "settings"),
-            ("About", "about"),
+
+        # Build grouped navigation sidebar.
+        # Section headers are non-selectable label items; real entries map to
+        # stack indices via _nav_to_stack / _stack_to_nav.
+        self._nav_to_stack: dict[int, int] = {}
+        self._stack_to_nav: dict[int, int] = {}
+        nav_sections = [
+            (None, [("Device", "device")]),
+            ("Tracers", [
+                ("Systrace", "systrace"),
+                ("Perfetto", "perfetto"),
+                ("Simpleperf", "simpleperf"),
+                ("Traceview", "traceview"),
+                ("Combo", "combo"),
+            ]),
+            ("System", [
+                ("Settings", "settings"),
+                ("About", "about"),
+            ]),
         ]
-        for label, icon_name in nav_items:
-            icon = load_icon(icon_name)
-            item = QtWidgets.QListWidgetItem(icon, label)
-            self.nav_list.addItem(item)
+        nav_row = 0
+        stack_idx = 0
+        for section_title, items in nav_sections:
+            if section_title:
+                header = QtWidgets.QListWidgetItem(f"  {section_title.upper()}")
+                header.setFlags(QtCore.Qt.NoItemFlags)
+                font = header.font()
+                font.setPointSize(max(font.pointSize() - 2, 7))
+                font.setBold(True)
+                header.setFont(font)
+                header.setForeground(QtGui.QColor(Colors.NEUTRAL_500))
+                self.nav_list.addItem(header)
+                nav_row += 1
+            for label, icon_name in items:
+                icon = load_icon(icon_name)
+                item = QtWidgets.QListWidgetItem(icon, label)
+                item.setData(QtCore.Qt.UserRole, label)
+                self.nav_list.addItem(item)
+                self._nav_to_stack[nav_row] = stack_idx
+                self._stack_to_nav[stack_idx] = nav_row
+                nav_row += 1
+                stack_idx += 1
 
         self.stack = QtWidgets.QStackedWidget()
 
@@ -194,7 +222,7 @@ class MainWindow(QtWidgets.QMainWindow):
             QtCore.QTimer.singleShot(0, self.refresh_devices)
 
     def _ensure_panel(self, index: int) -> QtWidgets.QWidget:
-        """Ensure the panel widget for a given nav index exists.
+        """Ensure the panel widget for a given stack index exists.
 
         We keep QStackedWidget indices stable by swapping a lightweight placeholder
         with the real panel on first access.
@@ -213,6 +241,15 @@ class MainWindow(QtWidgets.QMainWindow):
         placeholder.deleteLater()
         self.stack.insertWidget(index, panel)
         self._lazy_placeholders[index] = None
+
+        # Connect busy badge to sidebar — persists across panel switches.
+        if isinstance(panel, BasePanel):
+            nav_row = self._stack_to_nav.get(index)
+            if nav_row is not None:
+                panel.busy_changed.connect(
+                    lambda busy, r=nav_row: self._update_nav_badge(r, busy)
+                )
+
         return panel
 
     def _current_device_serial(self) -> Optional[str]:
@@ -312,6 +349,10 @@ class MainWindow(QtWidgets.QMainWindow):
         if index < 0:
             return
 
+        stack_idx = self._nav_to_stack.get(index)
+        if stack_idx is None:
+            return  # Section header — not navigable
+
         # Disconnect old panel signals if it was a BasePanel
         current = self.stack.currentWidget()
         if isinstance(current, BasePanel):
@@ -324,7 +365,7 @@ class MainWindow(QtWidgets.QMainWindow):
             except RuntimeError:
                 pass  # Already disconnected or destroyed
 
-        new_panel = self._ensure_panel(index)
+        new_panel = self._ensure_panel(stack_idx)
         self.stack.setCurrentWidget(new_panel)
 
         # Default state
@@ -374,6 +415,20 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_capture_started(self, duration: int) -> None:
         self._capture_duration = duration
         self._capture_elapsed = 0
+
+    def _update_nav_badge(self, row: int, busy: bool) -> None:
+        item = self.nav_list.item(row)
+        if item is None:
+            return
+        base_text = item.data(QtCore.Qt.UserRole)
+        if base_text is None:
+            return
+        if busy:
+            item.setText(f"\u25cf {base_text}")
+            item.setForeground(QtGui.QColor(Colors.SUCCESS))
+        else:
+            item.setText(base_text)
+            item.setForeground(QtGui.QColor(Colors.NEUTRAL_800))
 
     def _on_countdown_tick(self) -> None:
         self._capture_elapsed += 1
