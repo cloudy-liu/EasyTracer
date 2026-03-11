@@ -1,10 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
+from pathlib import Path
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 # NOTE:
 # - Do NOT copy `external/systrace` as raw source into dist.
 #   Systrace is executed as a normal Python package module and is archived into PYZ.
 # - Keep Simpleperf's external scripts on-disk for now (it uses file-path execution).
+
+SPEC_PATH = Path(globals().get("__file__", Path.cwd() / "easy_tracer.spec")).resolve()
+ROOT_DIR = SPEC_PATH.parent
+APP_ICON_PATH = ROOT_DIR / "src" / "easy_tracer" / "assets" / "icons" / "app.ico"
 
 datas = []
 # Keep simpleperf external scripts available as files (path-based runner).
@@ -59,6 +64,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name='easy_tracer',
+    icon=str(APP_ICON_PATH),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

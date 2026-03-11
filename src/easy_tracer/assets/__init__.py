@@ -31,7 +31,7 @@ _FALLBACK_ICONS = {
 
 
 def icon_path(name: str) -> Optional[Path]:
-    """Get absolute path to an icon file (SVG or PNG).
+    """Get absolute path to an icon file (SVG/PNG/ICO).
 
     Args:
         name: Icon name without extension (e.g., 'perfetto')
@@ -39,7 +39,7 @@ def icon_path(name: str) -> Optional[Path]:
     Returns:
         Path to the icon file, or None if not found
     """
-    for ext in ("svg", "png"):
+    for ext in ("svg", "png", "ico"):
         p = ICONS_DIR / f"{name}.{ext}"
         if p.exists():
             return p
@@ -56,9 +56,19 @@ def load_icon(name: str, size: int = 24) -> QIcon:
     Returns:
         QIcon instance (custom or system fallback)
     """
-    path = icon_path(name)
+    # App window icons are best loaded from .ico when available (multi-size on
+    # Windows), but keep .png/.svg fallback for cross-platform reliability.
+    candidate_paths: list[Path] = []
+    if name == "app":
+        ico = ICONS_DIR / "app.ico"
+        if ico.exists():
+            candidate_paths.append(ico)
 
-    if path is not None:
+    path = icon_path(name)
+    if path is not None and path not in candidate_paths:
+        candidate_paths.append(path)
+
+    for path in candidate_paths:
         if path.suffix == ".svg":
             renderer = QSvgRenderer(str(path))
             if renderer.isValid():
@@ -68,6 +78,10 @@ def load_icon(name: str, size: int = 24) -> QIcon:
                 renderer.render(painter)
                 painter.end()
                 return QIcon(pixmap)
+        elif path.suffix == ".ico":
+            icon = QIcon(str(path))
+            if not icon.isNull():
+                return icon
         else:
             # PNG or other raster format
             pixmap = QPixmap(str(path))

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="doc/assets/easytracer-logo-brand-guidelines.svg" alt="EasyTracer" width="760" />
+  <img src=".github/assets/easytracer-readme-hero.png" alt="EasyTracer" width="760" />
 </p>
 
 <p align="center">
@@ -8,7 +8,6 @@
   <img src="https://img.shields.io/badge/GUI-PySide6-41CD52?logo=qt&logoColor=white" alt="GUI" />
   <img src="https://img.shields.io/badge/CLI-Click-000000?logo=gnubash&logoColor=white" alt="CLI" />
 </p>
-
 EasyTracer 是一个面向 Android 性能分析场景的桌面 GUI 工具，统一封装了
 `Systrace`、`Perfetto`、`Simpleperf`、`Traceview` 等常用链路，降低抓取门槛，
 适合日常性能定位、回归比对和问题复现。

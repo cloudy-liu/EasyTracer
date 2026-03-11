@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 
 PanelFactory = Callable[[], QtWidgets.QWidget]
 
+BUSY_NAV_PREFIX = "\u25cf"
+
 NAV_SECTIONS = [
     (
         "Tracers",
@@ -61,6 +63,8 @@ PANEL_KEYS = {
 
 
 class MainWindow(QtWidgets.QMainWindow):
+    """Primary application window for the EasyTracer desktop UI."""
+
     def __init__(
         self,
         presenter: MainPresenter,
@@ -114,6 +118,36 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if auto_refresh_devices:
             QtCore.QTimer.singleShot(0, self.refresh_devices)
+
+    def _loaded_capture_panels(self) -> list[QtWidgets.QWidget]:
+        """Returns all lazily built tracer panels that currently exist."""
+
+        panels = [
+            self.systrace_panel,
+            self.perfetto_panel,
+            self.simpleperf_panel,
+            self.traceview_panel,
+            self.combo_panel,
+        ]
+        return [panel for panel in panels if panel is not None]
+
+    def _unique_panels(
+        self,
+        *panels: Optional[QtWidgets.QWidget],
+    ) -> list[QtWidgets.QWidget]:
+        """Returns panels without duplicates while preserving order."""
+
+        unique_panels: list[QtWidgets.QWidget] = []
+        seen: set[int] = set()
+        for panel in panels:
+            if panel is None:
+                continue
+            panel_id = id(panel)
+            if panel_id in seen:
+                continue
+            seen.add(panel_id)
+            unique_panels.append(panel)
+        return unique_panels
 
     def _build_header_controls(self) -> None:
         self.record_button = QtWidgets.QPushButton("录制")
@@ -490,6 +524,8 @@ class MainWindow(QtWidgets.QMainWindow):
         output_path.output_dir_changed.connect(self._on_shared_output_dir_changed)
 
     def warmup_ui(self) -> None:
+        """Eagerly creates all lazily loaded tracer panels."""
+
         for index in sorted(self._lazy_builders.keys()):
             self._ensure_panel(index)
 
@@ -575,7 +611,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         button.setProperty("busy", busy)
         base_text = self._nav_base_text.get(stack_index, button.text())
-        button.setText(f"● {base_text}" if busy else base_text)
+        button.setText(f"{BUSY_NAV_PREFIX} {base_text}" if busy else base_text)
         button.style().unpolish(button)
         button.style().polish(button)
         button.update()
@@ -625,6 +661,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 current.start_capture()
 
     def refresh_devices(self) -> None:
+        """Refreshes the connected Android device list in a worker thread."""
+
         if self._refresh_in_progress:
             self._refresh_pending = True
             return
@@ -638,6 +676,8 @@ class MainWindow(QtWidgets.QMainWindow):
         QtCore.QThreadPool.globalInstance().start(worker)
 
     def _run_refresh_devices(self) -> List[Device]:
+        """Runs the device query in a background worker."""
+
         return self.presenter.get_devices()
 
     def _on_refresh_finished(self) -> None:
@@ -672,27 +712,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.device_panel.set_selected_device(device)
         serial = self._current_device_serial()
 
-        panels: list[QtWidgets.QWidget] = []
         current = self.stack.currentWidget()
-        if hasattr(current, "update_device"):
-            panels.append(current)
-        for panel in (
-            self.systrace_panel,
-            self.perfetto_panel,
-            self.simpleperf_panel,
-            self.traceview_panel,
-            self.combo_panel,
-        ):
-            if panel is not None and hasattr(panel, "update_device"):
-                panels.append(panel)
-
-        seen: set[int] = set()
-        for panel in panels:
-            panel_id = id(panel)
-            if panel_id in seen:
-                continue
-            seen.add(panel_id)
-            panel.update_device(serial)
+        for panel in self._unique_panels(current, *self._loaded_capture_panels()):
+            if hasattr(panel, "update_device"):
+                panel.update_device(serial)
 
     def _on_options_changed(self) -> None:
         options = self._output_options()
@@ -700,14 +723,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._log(
             f"Capture extras: {', '.join(enabled) if enabled else 'none'}"
         )
-        for panel in (
-            self.systrace_panel,
-            self.perfetto_panel,
-            self.simpleperf_panel,
-            self.traceview_panel,
-            self.combo_panel,
-        ):
-            if panel is not None and hasattr(panel, "set_auxiliary_options"):
+        for panel in self._loaded_capture_panels():
+            if hasattr(panel, "set_auxiliary_options"):
                 panel.set_auxiliary_options(options)
 
     def _apply_adb_path(self, adb_path: str) -> None:

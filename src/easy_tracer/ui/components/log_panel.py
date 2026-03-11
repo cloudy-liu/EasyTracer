@@ -3,7 +3,13 @@ from __future__ import annotations
 from PySide6 import QtGui, QtWidgets
 
 
+_COLLAPSED_GLYPH = "\u25b8"
+_EXPANDED_GLYPH = "\u25be"
+
+
 class LogPanel(QtWidgets.QFrame):
+    """Collapsible log panel styled to match the prototype shell."""
+
     def __init__(self, parent: QtWidgets.QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("logArea")
@@ -31,12 +37,7 @@ class LogPanel(QtWidgets.QFrame):
         self.text.setObjectName("logContent")
         self.text.setReadOnly(True)
         self.text.setMinimumHeight(180)
-        font = QtGui.QFont("JetBrains Mono")
-        if not QtGui.QFontInfo(font).exactMatch():
-            font = QtGui.QFont("Cascadia Mono")
-        if not QtGui.QFontInfo(font).exactMatch():
-            font = QtGui.QFont("Consolas")
-        self.text.setFont(font)
+        self.text.setFont(self._build_monospace_font())
 
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -85,22 +86,40 @@ class LogPanel(QtWidgets.QFrame):
             """
         )
 
+    def _build_monospace_font(self) -> QtGui.QFont:
+        """Builds the best available monospace font for the log view."""
+
+        for family in ("JetBrains Mono", "Cascadia Mono", "Consolas"):
+            font = QtGui.QFont(family)
+            if QtGui.QFontInfo(font).exactMatch():
+                return font
+        return QtGui.QFont("monospace")
+
     def is_collapsed(self) -> bool:
+        """Returns whether the log body is currently collapsed."""
+
         return self._collapsed
 
     def toggle_collapsed(self) -> None:
+        """Toggles the log body visibility."""
+
         self.set_collapsed(not self._collapsed)
 
     def set_collapsed(self, collapsed: bool) -> None:
+        """Updates the collapsed state for the log body."""
+
         self._collapsed = bool(collapsed)
         self._sync_collapsed_state()
 
     def _sync_collapsed_state(self) -> None:
         self.text.setVisible(not self._collapsed)
-        self.toggle_button.setText("▸" if self._collapsed else "▾")
+        glyph = _COLLAPSED_GLYPH if self._collapsed else _EXPANDED_GLYPH
+        self.toggle_button.setText(glyph)
         self.setMinimumHeight(32 if self._collapsed else 188)
 
     def append(self, message: str) -> None:
+        """Appends a complete log line."""
+
         if not message:
             return
         self.text.append(message)
@@ -108,6 +127,8 @@ class LogPanel(QtWidgets.QFrame):
         self.text.ensureCursorVisible()
 
     def append_stream(self, message: str) -> None:
+        """Appends raw log output without forcing a trailing newline."""
+
         if not message:
             return
         cursor = self.text.textCursor()
@@ -122,5 +143,7 @@ class LogPanel(QtWidgets.QFrame):
         self.text.ensureCursorVisible()
 
     def clear(self) -> None:
+        """Clears the log contents."""
+
         self.text.clear()
         self._last_write_was_stream = False

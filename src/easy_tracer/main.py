@@ -61,6 +61,12 @@ def _get_app_root() -> Path:
     return get_app_root(__file__)
 
 
+def _default_config_path(app_root: Path) -> Path:
+    """Returns the persisted GUI config location under the config directory."""
+
+    return app_root / "config" / "config.json"
+
+
 def run() -> None:
     # Self-test mode (headless) - useful for packaged EXE closed-loop validation.
     if "--selftest" in sys.argv:
@@ -93,7 +99,7 @@ def run() -> None:
     # Prefer system adb (PATH) first; fallback to bundled adb if missing.
     default_adb_path = "adb" if shutil.which("adb") else (str(bundled_adb) if bundled_adb.exists() else "adb")
     config_service = config_service_module.ConfigService(
-        config_path=app_root / "config.json",
+        config_path=_default_config_path(app_root),
         default_adb_path=default_adb_path,
         default_output_dir=app_root / "output",
     )

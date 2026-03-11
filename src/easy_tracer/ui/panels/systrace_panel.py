@@ -17,10 +17,10 @@ from easy_tracer.models.requests import SystraceRequest
 from easy_tracer.presenters.systrace_presenter import SystracePresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
-from easy_tracer.ui.components.category_selector import CategorySelector, PRESETS
+from easy_tracer.ui.components.category_selector import CategorySelector
 from easy_tracer.ui.components.cards import DeprecationBanner
 from easy_tracer.ui.panels.base_panel import BasePanel
-from easy_tracer.ui.theme import Colors, Spacing
+from easy_tracer.ui.theme import Spacing
 
 
 # =============================================================================
@@ -32,6 +32,7 @@ DEFAULT_ATRACE_CATEGORIES = [
     "input", "dalvik", "binder_driver", "binder_lock",
 ]
 DEFAULT_ATRACE_SET = set(DEFAULT_ATRACE_CATEGORIES)
+BUFFER_PRESET_VALUES_KB = [4096, 8192, 10240, 16384, 32768, 65536]
 
 
 # =============================================================================
@@ -106,20 +107,26 @@ class SystracePanel(BasePanel):
         # CAPTURE CONFIGURATION GROUP
         # =====================================================================
         config_group = QtWidgets.QGroupBox("Capture Configuration")
-        config_layout = QtWidgets.QGridLayout(config_group)
+        config_layout = QtWidgets.QVBoxLayout(config_group)
         config_layout.setContentsMargins(Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD)
-        config_layout.setHorizontalSpacing(Spacing.LG)
-        config_layout.setVerticalSpacing(Spacing.MD)
+        config_layout.setSpacing(Spacing.MD)
 
         # Row 0: Duration, Target, Buffer
-        # Duration
-        config_layout.addWidget(QtWidgets.QLabel("Duration:"), 0, 0)
+        self._controls_row = QtWidgets.QHBoxLayout()
+        self._controls_row.setSpacing(Spacing.LG)
+
+        self._controls_row.addWidget(QtWidgets.QLabel("Duration:"))
         duration_widget = QtWidgets.QWidget()
+        duration_widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Maximum,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
         duration_layout = QtWidgets.QHBoxLayout(duration_widget)
         duration_layout.setContentsMargins(0, 0, 0, 0)
         duration_layout.setSpacing(Spacing.SM)
 
         self.duration_combo = QtWidgets.QComboBox()
+        self._configure_compact_combo(self.duration_combo, 6)
         self.duration_combo.addItems(["5s", "7s", "10s", "30s", "60s", "Custom"])
         self.duration_combo.currentTextChanged.connect(self._toggle_custom_duration)
         duration_layout.addWidget(self.duration_combo)
@@ -130,18 +137,27 @@ class SystracePanel(BasePanel):
         self.custom_duration.setSuffix(" s")
         self.custom_duration.setEnabled(False)
         self.custom_duration.setVisible(False)
+        self.custom_duration.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Maximum,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
         duration_layout.addWidget(self.custom_duration)
 
-        config_layout.addWidget(duration_widget, 0, 1)
+        self._controls_row.addWidget(duration_widget)
 
         # Target
-        config_layout.addWidget(QtWidgets.QLabel("Target:"), 0, 2)
-        target_widget = QtWidgets.QWidget()
-        target_layout = QtWidgets.QHBoxLayout(target_widget)
+        self._controls_row.addWidget(QtWidgets.QLabel("Target:"))
+        self.target_widget = QtWidgets.QWidget()
+        target_layout = QtWidgets.QHBoxLayout(self.target_widget)
         target_layout.setContentsMargins(0, 0, 0, 0)
         target_layout.setSpacing(Spacing.SM)
 
         self.target_combo = QtWidgets.QComboBox()
+        self._configure_compact_combo(self.target_combo, 12)
+        self.target_combo.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Maximum,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
         self.target_combo.addItems([
             "All Apps (*)",
             "Top App (Foreground)",
@@ -157,23 +173,63 @@ class SystracePanel(BasePanel):
         self.custom_target.setPlaceholderText("com.example.app")
         self.custom_target.setEnabled(False)
         self.custom_target.setVisible(False)
-        self.custom_target.setMinimumWidth(140)
+        self.custom_target.setMinimumWidth(180)
+        self.custom_target.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
         target_layout.addWidget(self.custom_target)
+        target_layout.setStretch(1, 1)
 
-        config_layout.addWidget(target_widget, 0, 3)
+        self._controls_row.addWidget(self.target_widget)
 
         # Buffer
-        config_layout.addWidget(QtWidgets.QLabel("Buffer:"), 0, 4)
-        self.buffer_spin = QtWidgets.QSpinBox()
-        self.buffer_spin.setRange(1024, 1024 * 1024)
-        self.buffer_spin.setValue(10240)
-        self.buffer_spin.setSuffix(" KB")
-        self.buffer_spin.setSingleStep(1024)
-        config_layout.addWidget(self.buffer_spin, 0, 5)
+        self._controls_row.addWidget(QtWidgets.QLabel("Buffer:"))
+        buffer_widget = QtWidgets.QWidget()
+        buffer_widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Maximum,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
+        buffer_layout = QtWidgets.QHBoxLayout(buffer_widget)
+        buffer_layout.setContentsMargins(0, 0, 0, 0)
+        buffer_layout.setSpacing(Spacing.SM)
+
+        self.buffer_combo = QtWidgets.QComboBox()
+        self._configure_compact_combo(self.buffer_combo, 10)
+        self.buffer_combo.addItems(
+            [self._format_buffer_label(size_kb) for size_kb in BUFFER_PRESET_VALUES_KB] + ["Custom"]
+        )
+        self.buffer_combo.setCurrentText(self._format_buffer_label(10240))
+        self.buffer_combo.currentTextChanged.connect(self._toggle_custom_buffer)
+        buffer_layout.addWidget(self.buffer_combo)
+
+        self.custom_buffer = QtWidgets.QSpinBox()
+        self.custom_buffer.setRange(1024, 1024 * 1024)
+        self.custom_buffer.setValue(10240)
+        self.custom_buffer.setSuffix(" KB")
+        self.custom_buffer.setSingleStep(1024)
+        self.custom_buffer.setEnabled(False)
+        self.custom_buffer.setVisible(False)
+        self.custom_buffer.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Maximum,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
+        buffer_layout.addWidget(self.custom_buffer)
+
+        self._controls_row.addWidget(buffer_widget)
+        self._controls_row.addStretch(1)
+        config_layout.addLayout(self._controls_row)
 
         # Row 1: Output path with Open button
-        config_layout.addWidget(QtWidgets.QLabel("Output:"), 1, 0)
+        output_row = QtWidgets.QHBoxLayout()
+        output_row.setSpacing(Spacing.LG)
+        output_row.addWidget(QtWidgets.QLabel("Output:"))
+
         output_widget = QtWidgets.QWidget()
+        output_widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
         output_layout = QtWidgets.QHBoxLayout(output_widget)
         output_layout.setContentsMargins(0, 0, 0, 0)
         output_layout.setSpacing(Spacing.SM)
@@ -193,20 +249,17 @@ class SystracePanel(BasePanel):
         self.open_output_btn.clicked.connect(self._on_open_output)
         output_layout.addWidget(self.open_output_btn)
 
-        config_layout.addWidget(output_widget, 1, 1, 1, 3)
+        output_row.addWidget(output_widget, 1)
 
         # Options
-        options_widget = QtWidgets.QWidget()
-        options_layout = QtWidgets.QHBoxLayout(options_widget)
-        options_layout.setContentsMargins(0, 0, 0, 0)
-        options_layout.setSpacing(Spacing.LG)
-
         self.enhance_cb = QtWidgets.QCheckBox("Enhanced thread names")
         self.enhance_cb.setToolTip("Show detailed thread names in trace (may impact performance)")
-        options_layout.addWidget(self.enhance_cb)
-
-        options_layout.addStretch()
-        config_layout.addWidget(options_widget, 1, 4, 1, 2)
+        self.enhance_cb.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Maximum,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
+        output_row.addWidget(self.enhance_cb)
+        config_layout.addLayout(output_row)
 
         layout.addWidget(config_group)
 
@@ -224,10 +277,24 @@ class SystracePanel(BasePanel):
         categories_layout.addWidget(self.category_selector, 1)
 
         layout.addWidget(categories_group, 1)
+        self._sync_target_layout(is_custom=False)
 
     # =========================================================================
     # EVENT HANDLERS
     # =========================================================================
+
+    def _configure_compact_combo(
+        self,
+        combo: QtWidgets.QComboBox,
+        minimum_contents_length: int,
+    ) -> None:
+        combo.setSizeAdjustPolicy(
+            QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        combo.setMinimumContentsLength(minimum_contents_length)
+
+    def _format_buffer_label(self, size_kb: int) -> str:
+        return f"{size_kb} KB"
 
     def _toggle_custom_duration(self, text: str) -> None:
         is_custom = text == "Custom"
@@ -238,6 +305,17 @@ class SystracePanel(BasePanel):
         is_custom = text == "Custom Package"
         self.custom_target.setEnabled(is_custom)
         self.custom_target.setVisible(is_custom)
+        self._sync_target_layout(is_custom)
+
+    def _toggle_custom_buffer(self, text: str) -> None:
+        is_custom = text == "Custom"
+        self.custom_buffer.setEnabled(is_custom)
+        self.custom_buffer.setVisible(is_custom)
+
+    def _sync_target_layout(self, is_custom: bool) -> None:
+        self._controls_row.setStretchFactor(self.target_widget, 1 if is_custom else 0)
+        self.target_widget.updateGeometry()
+        self.updateGeometry()
 
     def _on_open_output(self) -> None:
         output_dir = self.output_path.output_dir()
@@ -333,6 +411,12 @@ class SystracePanel(BasePanel):
             return int(self.custom_duration.value())
         return int(text.replace("s", ""))
 
+    def _get_buffer_size_kb(self) -> int:
+        text = self.buffer_combo.currentText()
+        if text == "Custom":
+            return int(self.custom_buffer.value())
+        return int(text.replace(" KB", ""))
+
     def _get_target_app(self) -> Optional[str]:
         text = self.target_combo.currentText()
         if text == "Custom Package":
@@ -368,7 +452,7 @@ class SystracePanel(BasePanel):
                 device_serial=self.device_serial or "",
                 categories=selected,
                 duration_seconds=self._get_duration(),
-                buffer_size_kb=self.buffer_spin.value(),
+                buffer_size_kb=self._get_buffer_size_kb(),
                 app_name=self._get_target_app(),
                 output_dir=self.output_path.output_dir(),
                 auxiliary_options=self._auxiliary_options,

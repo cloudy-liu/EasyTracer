@@ -23,6 +23,8 @@ class _UpdateEmitter(QtCore.QObject):
 
 
 class ComboSettingsDialog(BaseSettingsDialog):
+    """Lightweight settings dialog for combo captures."""
+
     def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
         super().__init__(parent, "Combo Settings")
 
@@ -39,6 +41,8 @@ class ComboSettingsDialog(BaseSettingsDialog):
 
 
 class ComboPanel(BasePanel):
+    """Configuration panel for running multiple tracers in one capture."""
+
     def __init__(
         self,
         presenter: ComboPresenter,
@@ -103,6 +107,8 @@ class ComboPanel(BasePanel):
         self.update_device(self.device_serial)
 
     def _build_layout(self) -> None:
+        """Builds the combo configuration layout."""
+
         target_layout = QtWidgets.QHBoxLayout()
         target_layout.setContentsMargins(0, 0, 0, 0)
         target_layout.setSpacing(8)
@@ -138,18 +144,29 @@ class ComboPanel(BasePanel):
         layout.addWidget(self.result_text, 1)
 
     def _toggle_target_input(self, _text: str) -> None:
-        is_custom = self.target_combo.currentIndex() == self.target_combo.count() - 1
+        is_custom = self._is_custom_target_selected()
         self.target_input.setEnabled(is_custom)
         self.target_input.setVisible(is_custom)
 
+    def _is_custom_target_selected(self) -> bool:
+        """Returns whether the custom-package target is selected."""
+
+        return self.target_combo.currentIndex() == self.target_combo.count() - 1
+
     def set_auxiliary_options(self, options: Dict[str, bool]) -> None:
+        """Stores auxiliary output options from the main window."""
+
         self._auxiliary_options = options
 
     def _on_open_output(self) -> None:
+        """Opens the output directory in the desktop file manager."""
+
         output_dir = self.output_path.output_dir()
         QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(output_dir))
 
     def update_device(self, serial: Optional[str]) -> None:
+        """Updates the selected device and refreshes readiness state."""
+
         self.device_serial = serial
         self.readiness_changed.emit(self.is_ready())
         if serial:
@@ -158,9 +175,13 @@ class ComboPanel(BasePanel):
             self.status_message.emit("Please select a device.")
 
     def is_ready(self) -> bool:
+        """Returns whether combo capture can start."""
+
         return bool(self.device_serial) and not self.presenter.is_running
 
     def update_view(self) -> None:
+        """Refreshes UI state from the presenter."""
+
         busy = self.presenter.is_running
         self.busy_changed.emit(busy)
         self.readiness_changed.emit(self.is_ready())
@@ -178,11 +199,13 @@ class ComboPanel(BasePanel):
             self.result_text.setPlainText("\n".join(lines))
 
     def _target_package(self) -> Optional[str]:
-        if self.target_combo.currentIndex() == self.target_combo.count() - 1:
+        if self._is_custom_target_selected():
             return self.target_input.text().strip() or None
         return None
 
     def _build_request(self) -> ComboRequest:
+        """Builds a combo request from the current UI state."""
+
         output_dir = self.output_path.output_dir()
         package_name = self._target_package()
         duration = int(self.duration_spin.value())
@@ -236,6 +259,8 @@ class ComboPanel(BasePanel):
         )
 
     def start_capture(self) -> None:
+        """Starts a combo capture when the panel is ready."""
+
         if not self.is_ready():
             return
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from types import SimpleNamespace
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -106,3 +107,21 @@ def test_spec_keeps_all_direct_pyside_modules() -> None:
         "PyInstaller keep-list is missing directly imported PySide6 modules: "
         f"{missing_modules}"
     )
+
+
+def test_spec_executes_without___file__() -> None:
+    """Ensures the spec can execute in PyInstaller's `exec` context."""
+    namespace = {
+        "__name__": "__main__",
+        "Analysis": lambda *args, **kwargs: SimpleNamespace(
+            pure=[],
+            scripts=[],
+            binaries=[],
+            datas=[],
+        ),
+        "PYZ": lambda *args, **kwargs: object(),
+        "EXE": lambda *args, **kwargs: object(),
+        "COLLECT": lambda *args, **kwargs: object(),
+    }
+
+    exec(SPEC_PATH.read_text(encoding="utf-8"), namespace)

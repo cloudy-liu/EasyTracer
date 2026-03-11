@@ -130,11 +130,13 @@ class PresetButtonGroup(QtWidgets.QWidget):
 
         self._all_btn = QtWidgets.QToolButton()
         self._all_btn.setText("Select All")
+        self._all_btn.setCheckable(True)
         self._all_btn.clicked.connect(lambda: self.preset_selected.emit("all"))
         layout.addWidget(self._all_btn)
 
         self._clear_btn = QtWidgets.QToolButton()
         self._clear_btn.setText("Clear All")
+        self._clear_btn.setCheckable(True)
         self._clear_btn.clicked.connect(lambda: self.preset_selected.emit("clear"))
         layout.addWidget(self._clear_btn)
 
@@ -180,6 +182,12 @@ class PresetButtonGroup(QtWidgets.QWidget):
             QToolButton:pressed {{
                 background-color: {Colors.NEUTRAL_300};
             }}
+            QToolButton:checked {{
+                background-color: {Colors.PRIMARY_LIGHT};
+                border-color: {Colors.PRIMARY};
+                color: {Colors.NEUTRAL_900};
+                font-weight: 600;
+            }}
         """
         self._all_btn.setStyleSheet(action_style)
         self._clear_btn.setStyleSheet(action_style)
@@ -191,8 +199,21 @@ class PresetButtonGroup(QtWidgets.QWidget):
         self.preset_selected.emit(preset)
 
     def clear_selection(self) -> None:
+        self.set_selected(None)
+
+    def set_selected(self, preset: Optional[str]) -> None:
+        """Updates the active preset button without emitting signals."""
+
         for btn in self._buttons.values():
             btn.setChecked(False)
+        self._all_btn.setChecked(False)
+        self._clear_btn.setChecked(False)
+        if preset in self._buttons:
+            self._buttons[preset].setChecked(True)
+        elif preset == "all":
+            self._all_btn.setChecked(True)
+        elif preset == "clear":
+            self._clear_btn.setChecked(True)
 
 
 # =============================================================================
@@ -396,6 +417,7 @@ class CategorySelector(QtWidgets.QWidget):
             self._add_category_to_column(cat, self._right_column, default_selected)
 
         self._apply_filter(self._filter.text())
+        self._sync_preset_state()
         self._update_counter()
 
     def _clear_column(self, column: QtWidgets.QVBoxLayout) -> None:
@@ -415,7 +437,7 @@ class CategorySelector(QtWidgets.QWidget):
         """Set selection state for all categories."""
         for cat, item in self._items.items():
             item.setChecked(cat in categories)
-        self._presets.clear_selection()
+        self._sync_preset_state()
         self._update_counter()
 
     def _apply_filter(self, text: str) -> None:
@@ -433,8 +455,22 @@ class CategorySelector(QtWidgets.QWidget):
 
     def _on_selection_changed(self) -> None:
         self._update_counter()
-        self._presets.clear_selection()
+        self._sync_preset_state()
         self.selection_changed.emit()
+
+    def _sync_preset_state(self) -> None:
+        selected = set(self.get_selected())
+        matched_preset = None
+        if self._all_categories and selected == set(self._all_categories):
+            matched_preset = "all"
+        elif self._all_categories and not selected:
+            matched_preset = "clear"
+        else:
+            matched_preset = next(
+                (preset for preset, categories in PRESETS.items() if selected == categories),
+                None,
+            )
+        self._presets.set_selected(matched_preset)
 
     def _update_counter(self) -> None:
         selected = len(self.get_selected())
@@ -449,5 +485,6 @@ class CategorySelector(QtWidgets.QWidget):
         self._all_categories.clear()
         self._clear_column(self._left_column)
         self._clear_column(self._right_column)
+        self._presets.clear_selection()
         self._counter.setText("0 of 0")
         self._filter.clear()
