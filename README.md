@@ -1,6 +1,7 @@
 <p align="center">
-  <img src=".github/assets/easytracer-readme-hero.png" alt="EasyTracer" width="760" />
+  <img src=".github/assets/easytracer-readme-hero.svg" alt="EasyTracer" width="880" />
 </p>
+
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white" alt="Python" />

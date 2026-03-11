@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" fill="none">
+  <defs>
+    <linearGradient id="botFill" x1="180" y1="32" x2="430" y2="248" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#97D95C"/>
+      <stop offset="0.52" stop-color="#57C8A8"/>
+      <stop offset="1" stop-color="#3E8FE8"/>
+    </linearGradient>
+    <linearGradient id="chipFill" x1="250" y1="112" x2="342" y2="204" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#20456D"/>
+      <stop offset="1" stop-color="#173555"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(84 18) scale(0.86)">
+    <g fill="url(#botFill)">
+      <path d="M224 258V300C224 315.464 236.536 328 252 328C267.464 328 280 315.464 280 300V258Z"/>
+      <path d="M300 258V300C300 315.464 312.536 328 328 328C343.464 328 356 315.464 356 300V258Z"/>
+    </g>
+
+    <g stroke="#264C72" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M186 42L160 0"/>
+      <path d="M394 42L420 0"/>
+
+      <path d="M160 88C160 47.131 193.131 14 234 14H346C386.869 14 420 47.131 420 88V126H160V88Z" fill="url(#botFill)"/>
+      <path d="M160 126H420V188C420 228.869 386.869 262 346 262H234C193.131 262 160 228.869 160 188V126Z" fill="url(#botFill)"/>
+
+      <path d="M118 146C118 127.222 133.222 112 152 112H160V220H152C133.222 220 118 204.778 118 186V146Z" fill="url(#botFill)"/>
+      <path d="M420 112H428C446.778 112 462 127.222 462 146V186C462 204.778 446.778 220 428 220H420V112Z" fill="url(#botFill)"/>
+
+      <path d="M224 270V300C224 315.464 236.536 328 252 328C267.464 328 280 315.464 280 300V270"/>
+      <path d="M300 270V300C300 315.464 312.536 328 328 328C343.464 328 356 315.464 356 300V270"/>
+    </g>
+
+    <g fill="#264C72">
+      <circle cx="228" cy="82" r="12"/>
+      <circle cx="352" cy="82" r="12"/>
+    </g>
+
+    <g opacity="0.95" stroke="url(#botFill)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M160 160H222L248 136H332L358 160H420"/>
+      <path d="M160 190H214L244 164H336L366 190H420"/>
+      <path d="M206 126V204C206 216.15 215.85 226 228 226C240.15 226 250 216.15 250 204V182"/>
+      <path d="M374 126V204C374 216.15 364.15 226 352 226C339.85 226 330 216.15 330 204V182"/>
+    </g>
+
+    <circle cx="290" cy="174" r="42" fill="url(#chipFill)" stroke="#264C72" stroke-width="7"/>
+    <path d="M246 174H266L276 152L288 188L300 166L310 174H334" stroke="#C9FFF2" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g transform="translate(560 104)">
+    <path d="M0 18H188" stroke="#8FD355" stroke-width="6" stroke-linecap="round"/>
+    <text x="0" y="104" fill="#183655" font-family="Aptos, Segoe UI, Arial, sans-serif" font-size="78" font-weight="800" letter-spacing="0.04em">EASY TRACER</text>
+  </g>
+</svg>
