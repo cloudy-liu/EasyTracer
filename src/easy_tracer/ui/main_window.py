@@ -267,7 +267,18 @@ class MainWindow(QtWidgets.QMainWindow):
         main_column_layout = QtWidgets.QVBoxLayout(self.main_column)
         main_column_layout.setContentsMargins(0, 0, 0, 0)
         main_column_layout.setSpacing(0)
-        main_column_layout.addWidget(self.content_stack_host, 1)
+
+        self.log_panel = LogPanel()
+        self.main_splitter = QtWidgets.QSplitter(QtCore.Qt.Orientation.Vertical)
+        self.main_splitter.setObjectName("mainVerticalSplitter")
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setHandleWidth(6)
+        self.main_splitter.addWidget(self.content_stack_host)
+        self.main_splitter.addWidget(self.log_panel)
+        self.main_splitter.setStretchFactor(0, 1)
+        self.main_splitter.setStretchFactor(1, 0)
+        self.main_splitter.setSizes([600, 100])
+        main_column_layout.addWidget(self.main_splitter, 1)
 
         body = QtWidgets.QWidget()
         body_layout = QtWidgets.QHBoxLayout(body)
@@ -275,9 +286,6 @@ class MainWindow(QtWidgets.QMainWindow):
         body_layout.setSpacing(0)
         body_layout.addWidget(self.sidebar_nav)
         body_layout.addWidget(self.main_column, 1)
-
-        self.log_panel = LogPanel()
-        main_column_layout.addWidget(self.log_panel)
 
         shell_layout = QtWidgets.QVBoxLayout(central)
         shell_layout.setContentsMargins(0, 0, 0, 0)

@@ -142,7 +142,9 @@ class Dimensions:
 
     # Panels
     NAV_LIST_WIDTH = 160
-    LOG_PANEL_MIN_HEIGHT = 220
+    LOG_PANEL_MIN_HEIGHT = 96
+    LOG_PANEL_COLLAPSED_HEIGHT = 32
+    LOG_PANEL_TEXT_MIN_HEIGHT = 64
 
     # Category Grid
     CATEGORY_ITEM_WIDTH = 140
@@ -151,4 +153,4 @@ class Dimensions:
 
     # Window
     WINDOW_DEFAULT_WIDTH = 1200
-    WINDOW_DEFAULT_HEIGHT = 820
+    WINDOW_DEFAULT_HEIGHT = 760

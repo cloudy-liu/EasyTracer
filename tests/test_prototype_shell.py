@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 from easy_tracer.framework.adb_adapter import AdbAdapter
 from easy_tracer.framework.perfetto_adapter import PerfettoAdapter
@@ -123,6 +123,32 @@ def test_log_panel_can_collapse_and_expand(tmp_path):
         window.close()
 
 
+def test_main_window_places_content_and_log_panel_in_vertical_splitter(tmp_path):
+    window = _build_window(tmp_path)
+
+    try:
+        splitter = window.main_splitter
+        assert splitter.orientation() == QtCore.Qt.Orientation.Vertical
+        assert splitter.parentWidget().objectName() == "mainColumn"
+        assert splitter.widget(0) is window.content_stack_host
+        assert splitter.widget(1) is window.log_panel
+    finally:
+        window.close()
+
+
+def test_log_panel_uses_compact_minimum_heights(tmp_path):
+    window = _build_window(tmp_path)
+
+    try:
+        log_panel = window.log_panel
+        assert log_panel.minimumHeight() == 96
+
+        log_panel.toggle_collapsed()
+        assert log_panel.minimumHeight() == 32
+    finally:
+        window.close()
+
+
 def test_navigation_buttons_switch_stack_panels(tmp_path):
     window = _build_window(tmp_path)
 
@@ -145,11 +171,35 @@ def test_record_button_starts_disabled_without_ready_panel(tmp_path):
         window.close()
 
 
-def test_log_panel_lives_in_main_column_not_full_width_shell(tmp_path):
+def test_window_uses_compact_default_height(tmp_path):
     window = _build_window(tmp_path)
 
     try:
-        assert window.log_panel.parentWidget().objectName() == "mainColumn"
+        assert window.height() == 760
+    finally:
+        window.close()
+
+
+def test_simpleperf_panel_removes_explanatory_info_card(tmp_path):
+    window = _build_window(tmp_path)
+
+    try:
+        window._activate_stack_index(3)
+        panel = window.simpleperf_panel
+        assert panel is not None
+        assert not hasattr(panel, "info_card")
+    finally:
+        window.close()
+
+
+def test_traceview_panel_removes_explanatory_info_card(tmp_path):
+    window = _build_window(tmp_path)
+
+    try:
+        window._activate_stack_index(4)
+        panel = window.traceview_panel
+        assert panel is not None
+        assert not hasattr(panel, "info_card")
     finally:
         window.close()
 

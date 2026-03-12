@@ -13,7 +13,6 @@ from easy_tracer.models.requests import TraceviewStartRequest
 from easy_tracer.presenters.traceview_presenter import TraceviewPresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
-from easy_tracer.ui.components.cards import InfoCard
 from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.theme import Spacing
 
@@ -135,24 +134,6 @@ class TraceviewPanel(BasePanel):
 
         mode_layout.addStretch()
         layout.addWidget(mode_group)
-
-        # =====================================================================
-        # INFO CARD
-        # =====================================================================
-        self.info_card = InfoCard(
-            title="About Traceview",
-            description=(
-                "Traceview captures method-level execution traces for Android apps, "
-                "showing exact method call sequences, execution times, and call hierarchies."
-            ),
-            bullets=[
-                "Sample Mode: Periodically samples the call stack. Lower overhead, suitable for production-like analysis",
-                "Trace All: Records every method entry/exit. High overhead but complete coverage",
-                "Cold Start: Force-stops and relaunches the app, capturing startup method traces",
-                "Output: Generates a .trace file viewable in Android Studio Profiler",
-            ],
-        )
-        layout.addWidget(self.info_card)
 
         layout.addStretch(1)
 

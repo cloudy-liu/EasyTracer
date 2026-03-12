@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from PySide6 import QtGui, QtWidgets
 
+from easy_tracer.ui.theme import Dimensions
+
 
 _COLLAPSED_GLYPH = "\u25b8"
 _EXPANDED_GLYPH = "\u25be"
@@ -36,7 +38,7 @@ class LogPanel(QtWidgets.QFrame):
         self.text = QtWidgets.QTextEdit()
         self.text.setObjectName("logContent")
         self.text.setReadOnly(True)
-        self.text.setMinimumHeight(180)
+        self.text.setMinimumHeight(Dimensions.LOG_PANEL_TEXT_MIN_HEIGHT)
         self.text.setFont(self._build_monospace_font())
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -115,7 +117,12 @@ class LogPanel(QtWidgets.QFrame):
         self.text.setVisible(not self._collapsed)
         glyph = _COLLAPSED_GLYPH if self._collapsed else _EXPANDED_GLYPH
         self.toggle_button.setText(glyph)
-        self.setMinimumHeight(32 if self._collapsed else 188)
+        if self._collapsed:
+            self.setMinimumHeight(Dimensions.LOG_PANEL_COLLAPSED_HEIGHT)
+            self.setMaximumHeight(Dimensions.LOG_PANEL_COLLAPSED_HEIGHT)
+        else:
+            self.setMinimumHeight(Dimensions.LOG_PANEL_MIN_HEIGHT)
+            self.setMaximumHeight(16777215)
 
     def append(self, message: str) -> None:
         """Appends a complete log line."""

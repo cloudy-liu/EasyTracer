@@ -13,7 +13,6 @@ from easy_tracer.models.requests import SimpleperfRequest
 from easy_tracer.presenters.simpleperf_presenter import SimpleperfPresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
-from easy_tracer.ui.components.cards import InfoCard
 from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.theme import Spacing
 
@@ -135,26 +134,6 @@ class SimpleperfPanel(BasePanel):
 
         options_layout.addStretch()
         layout.addWidget(options_group)
-
-        # =====================================================================
-        # INFO CARD
-        # =====================================================================
-        self.info_card = InfoCard(
-            title="About Simpleperf",
-            description=(
-                "Simpleperf is a native CPU profiling tool for Android. "
-                "It uses hardware performance counters to collect CPU samples "
-                "with minimal overhead."
-            ),
-            bullets=[
-                "App Profiling: Records call stacks of a specific app with configurable frequency",
-                "System-wide: Profiles all processes (requires root or userdebug build)",
-                "Cold Start: Force-stops the app first, then launches and profiles from startup",
-                "Flamegraph: Generates an interactive HTML report for call stack visualization",
-                "Off-CPU: Tracks time spent waiting (I/O, locks, sleep) in addition to on-CPU time",
-            ],
-        )
-        layout.addWidget(self.info_card)
 
         layout.addStretch(1)
 
