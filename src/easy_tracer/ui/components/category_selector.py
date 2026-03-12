@@ -1,22 +1,14 @@
-"""
-Category Selector Component
-===========================
-Flat list, filterable category selection widget.
-
-Features:
-- Categories displayed in a flat list with descriptions
-- Real-time selection counter
-- Filter/search functionality
-- Select All / Clear All
-- Preset quick selections
-"""
+"""Flat, filterable widget for choosing atrace categories."""
 
 from typing import Optional
-from PySide6 import QtCore, QtWidgets, QtGui
+
+from PySide6 import QtCore, QtGui, QtWidgets
+
 from easy_tracer.models.category_registry import (
-    CATEGORY_DESCRIPTIONS,
     ATRACE_PRESETS,
+    CATEGORY_DESCRIPTIONS,
     PRESET_ORDER,
+    detect_preset_name,
 )
 from easy_tracer.ui.theme import Colors, Spacing
 from easy_tracer.ui.theme.stylesheet import selection_counter_qss
@@ -153,58 +145,63 @@ class PresetButtonGroup(QtWidgets.QWidget):
 
 class CategoryItemWidget(QtWidgets.QWidget):
     """A single category item with checkbox, name, and description."""
-    
+
     state_changed = QtCore.Signal()
 
-    def __init__(self, name: str, description: str, parent: Optional[QtWidgets.QWidget] = None):
+    def __init__(
+        self,
+        name: str,
+        description: str,
+        parent: Optional[QtWidgets.QWidget] = None,
+    ):
         super().__init__(parent)
         self.name = name
         self.description = description
-        
+
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(Spacing.SM, Spacing.XS, Spacing.SM, Spacing.XS)
         layout.setSpacing(Spacing.MD)
-        
+
         self.checkbox = QtWidgets.QCheckBox()
         self.checkbox.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self.checkbox.stateChanged.connect(self._on_state_changed)
         layout.addWidget(self.checkbox)
-        
-        # Name label (bold or distinct)
+
         self.name_label = QtWidgets.QLabel(name)
         self.name_label.setStyleSheet(f"font-weight: bold; color: {Colors.NEUTRAL_800};")
-        self.name_label.setFixedWidth(100) # Fixed width for alignment
+        self.name_label.setFixedWidth(100)
         layout.addWidget(self.name_label)
-        
-        # Description label
+
         self.desc_label = QtWidgets.QLabel(description)
         self.desc_label.setStyleSheet(f"color: {Colors.NEUTRAL_600};")
-        self.desc_label.setSizePolicy(QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Preferred)
+        self.desc_label.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
         layout.addWidget(self.desc_label)
-        
-        # Make the whole row clickable
+
         self.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
-        
+
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
             self.checkbox.toggle()
         super().mouseReleaseEvent(event)
-        
+
     def _on_state_changed(self) -> None:
         self.state_changed.emit()
-        
+
     def isChecked(self) -> bool:
         return self.checkbox.isChecked()
-        
+
     def setChecked(self, checked: bool) -> None:
         self.checkbox.blockSignals(True)
         self.checkbox.setChecked(checked)
         self.checkbox.blockSignals(False)
-        
+
     def matches_filter(self, text: str) -> bool:
-        if not text:
-            return True
         needle = text.lower().strip()
+        if not needle:
+            return True
         return needle in self.name.lower() or needle in self.description.lower()
 
 
@@ -329,16 +326,10 @@ class CategorySelector(QtWidgets.QWidget):
         """
         self._all_categories = sorted(categories)
 
-        # Clear existing items
-        for item in self._items.values():
-            item.deleteLater()
-        self._items.clear()
-
-        # Remove stretches from both columns
+        self._clear_items()
         self._clear_column(self._left_column)
         self._clear_column(self._right_column)
 
-        # Distribute categories across two columns
         mid = (len(self._all_categories) + 1) // 2
 
         for cat in self._all_categories[:mid]:
@@ -359,6 +350,12 @@ class CategorySelector(QtWidgets.QWidget):
                 item.widget().deleteLater()
             del item
         column.addStretch()
+
+    def _clear_items(self) -> None:
+        """Delete all category widgets and reset the item lookup."""
+        for item in self._items.values():
+            item.deleteLater()
+        self._items.clear()
 
     def get_selected(self) -> list[str]:
         """Return list of all selected category names."""
@@ -389,20 +386,20 @@ class CategorySelector(QtWidgets.QWidget):
         self._sync_preset_state()
         self.selection_changed.emit()
 
+    def _matched_preset(self, selected: set[str]) -> Optional[str]:
+        """Return the matching preset key for the current selection."""
+        # "all" and "clear" are local UI states, not registry presets.
+        if self._all_categories and selected == set(self._all_categories):
+            return "all"
+        if self._all_categories and not selected:
+            return "clear"
+
+        preset_name = detect_preset_name(selected)
+        return preset_name.lower() if preset_name else None
+
     def _sync_preset_state(self) -> None:
         selected = set(self.get_selected())
-        matched_preset = None
-        if self._all_categories and selected == set(self._all_categories):
-            matched_preset = "all"
-        elif self._all_categories and not selected:
-            matched_preset = "clear"
-        else:
-            matched_preset = next(
-                (key for key in PRESET_ORDER
-                 if selected == set(ATRACE_PRESETS[key])),
-                None,
-            )
-        self._presets.set_selected(matched_preset)
+        self._presets.set_selected(self._matched_preset(selected))
 
     def _update_counter(self) -> None:
         selected = len(self.get_selected())
@@ -411,9 +408,7 @@ class CategorySelector(QtWidgets.QWidget):
 
     def clear(self) -> None:
         """Clear all categories (device disconnected)."""
-        for item in self._items.values():
-            item.deleteLater()
-        self._items.clear()
+        self._clear_items()
         self._all_categories.clear()
         self._clear_column(self._left_column)
         self._clear_column(self._right_column)

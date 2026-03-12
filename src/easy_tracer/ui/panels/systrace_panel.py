@@ -10,8 +10,9 @@ Architecture:
 - Presenter: handles all capture logic
 """
 
-from typing import Optional, Dict
-from PySide6 import QtCore, QtWidgets, QtGui
+from typing import Optional
+
+from PySide6 import QtCore, QtGui, QtWidgets
 from easy_tracer.models.category_registry import (
     CATEGORY_DESCRIPTIONS,
     DEFAULT_ATRACE_CATEGORIES,
@@ -32,6 +33,12 @@ from easy_tracer.ui.theme import Spacing
 # =============================================================================
 
 BUFFER_PRESET_VALUES_KB = [4096, 8192, 10240, 16384, 32768, 65536]
+# Non-custom target choices map to stable system package names.
+_NAMED_TARGET_APPS = {
+    "Launcher": "com.android.launcher3",
+    "SystemUI": "com.android.systemui",
+    "Settings": "com.android.settings",
+}
 
 
 # =============================================================================
@@ -68,7 +75,7 @@ class SystracePanel(BasePanel):
         self.device_serial = device_serial
         self.default_output_dir = default_output_dir
         self._auto_loaded_serial: Optional[str] = None
-        self._auxiliary_options: Dict[str, bool] = {}
+        self._auxiliary_options: dict[str, bool] = {}
         self._all_categories: list[str] = []
         self._selected_categories: list[str] = list(DEFAULT_ATRACE_CATEGORIES)
 
@@ -81,7 +88,7 @@ class SystracePanel(BasePanel):
         self._update_category_summary()
         self.update_device(self.device_serial)
 
-    def set_auxiliary_options(self, options: Dict[str, bool]) -> None:
+    def set_auxiliary_options(self, options: dict[str, bool]) -> None:
         """Set auxiliary output options from main window."""
         self._auxiliary_options = options
 
@@ -283,21 +290,27 @@ class SystracePanel(BasePanel):
     def _format_buffer_label(self, size_kb: int) -> str:
         return f"{size_kb} KB"
 
+    def _set_custom_widget_state(
+        self,
+        widget: QtWidgets.QWidget,
+        is_custom: bool,
+    ) -> None:
+        """Show and enable a custom-value widget together."""
+        widget.setEnabled(is_custom)
+        widget.setVisible(is_custom)
+
     def _toggle_custom_duration(self, text: str) -> None:
         is_custom = text == "Custom"
-        self.custom_duration.setEnabled(is_custom)
-        self.custom_duration.setVisible(is_custom)
+        self._set_custom_widget_state(self.custom_duration, is_custom)
 
     def _toggle_custom_target(self, text: str) -> None:
         is_custom = text == "Custom Package"
-        self.custom_target.setEnabled(is_custom)
-        self.custom_target.setVisible(is_custom)
+        self._set_custom_widget_state(self.custom_target, is_custom)
         self._sync_target_layout(is_custom)
 
     def _toggle_custom_buffer(self, text: str) -> None:
         is_custom = text == "Custom"
-        self.custom_buffer.setEnabled(is_custom)
-        self.custom_buffer.setVisible(is_custom)
+        self._set_custom_widget_state(self.custom_buffer, is_custom)
 
     def _sync_target_layout(self, is_custom: bool) -> None:
         self._controls_row.setStretchFactor(self.target_widget, 1 if is_custom else 0)
@@ -422,13 +435,9 @@ class SystracePanel(BasePanel):
         text = self.target_combo.currentText()
         if text == "Custom Package":
             return self.custom_target.text().strip() or None
-        if text == "Launcher":
-            return "com.android.launcher3"
-        if text == "SystemUI":
-            return "com.android.systemui"
-        if text == "Settings":
-            return "com.android.settings"
-        return None
+        # Named targets stay in one mapping table so the dropdown text and
+        # request package resolution do not drift apart.
+        return _NAMED_TARGET_APPS.get(text)
 
     def start_capture(self) -> None:
         if not self.device_serial:

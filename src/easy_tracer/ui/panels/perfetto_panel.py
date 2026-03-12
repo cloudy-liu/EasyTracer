@@ -11,8 +11,9 @@ Features:
 """
 
 import os
-from typing import Optional, Dict
-from PySide6 import QtCore, QtWidgets, QtGui
+from typing import Optional
+
+from PySide6 import QtCore, QtGui, QtWidgets
 from easy_tracer.framework.perfetto_config_builder import PerfettoConfig
 from easy_tracer.models.category_registry import (
     CATEGORY_DESCRIPTIONS,
@@ -43,13 +44,6 @@ _DS_ENABLED: dict[str, set[str]] = {
         "surfaceflinger", "gpu_memory", "packages_list", "android_log",
     },
 }
-
-_ALL_DS_KEYS = [
-    "ftrace", "process_stats", "sys_stats", "system_info",
-    "surfaceflinger", "gpu_memory", "gpu_work", "heapprofd",
-    "java_hprof", "power", "perf", "packages_list", "android_log", "network",
-]
-
 
 class _UpdateEmitter(QtCore.QObject):
     updated = QtCore.Signal()
@@ -101,7 +95,7 @@ class PerfettoPanel(BasePanel):
         self.presenter = presenter
         self.device_serial = device_serial
         self.default_output_dir = default_output_dir
-        self._auxiliary_options: Dict[str, bool] = {}
+        self._auxiliary_options: dict[str, bool] = {}
         self._current_preset: str = "standard"
         self._atrace_categories: list[str] = list(ATRACE_PRESETS["standard"])
         self._update_emitter = _UpdateEmitter()
@@ -405,7 +399,7 @@ class PerfettoPanel(BasePanel):
     # AUXILIARY / NAVIGATION
     # =========================================================================
 
-    def set_auxiliary_options(self, options: Dict[str, bool]) -> None:
+    def set_auxiliary_options(self, options: dict[str, bool]) -> None:
         """Set auxiliary output options from main window."""
         self._auxiliary_options = options
 
@@ -458,32 +452,49 @@ class PerfettoPanel(BasePanel):
         text = self.settings_dialog.buffer_combo.currentText().replace("MB", "").strip()
         return int(text) * 1024
 
+    def _build_custom_config(
+        self,
+        duration_seconds: int,
+        buffer_size_kb: int,
+        categories: list[str],
+    ) -> PerfettoConfig:
+        """Build the explicit config used for the custom preset."""
+        # Custom mode bypasses registry presets and mirrors the live checkbox
+        # state into a concrete PerfettoConfig.
+        return PerfettoConfig(
+            duration_ms=duration_seconds * 1000,
+            buffer_size_kb=buffer_size_kb,
+            write_period_ms=self.settings_dialog.write_period.value(),
+            flush_period_ms=self.settings_dialog.flush_period.value(),
+            atrace_categories=categories,
+            enable_ftrace=self.ds_ftrace.isChecked(),
+            enable_process_stats=self.ds_process_stats.isChecked(),
+            enable_sys_stats=self.ds_sys_stats.isChecked(),
+            enable_system_info=self.ds_system_info.isChecked(),
+            enable_surfaceflinger=self.ds_surfaceflinger.isChecked(),
+            enable_gpu_memory=self.ds_gpu_memory.isChecked(),
+            enable_packages_list=self.ds_packages_list.isChecked(),
+            enable_android_log=self.ds_android_log.isChecked(),
+        )
+
     def _build_request(self) -> PerfettoRequest:
+        duration_seconds = self._duration_seconds()
+        buffer_size_kb = self._buffer_kb()
+        categories = self._selected_atrace_categories()
         preset = None if self._current_preset == "custom" else self._current_preset
         config = None
-
         if preset is None:
-            config = PerfettoConfig(
-                duration_ms=self._duration_seconds() * 1000,
-                buffer_size_kb=self._buffer_kb(),
-                write_period_ms=self.settings_dialog.write_period.value(),
-                flush_period_ms=self.settings_dialog.flush_period.value(),
-                atrace_categories=self._selected_atrace_categories(),
-                enable_ftrace=self.ds_ftrace.isChecked(),
-                enable_process_stats=self.ds_process_stats.isChecked(),
-                enable_sys_stats=self.ds_sys_stats.isChecked(),
-                enable_system_info=self.ds_system_info.isChecked(),
-                enable_surfaceflinger=self.ds_surfaceflinger.isChecked(),
-                enable_gpu_memory=self.ds_gpu_memory.isChecked(),
-                enable_packages_list=self.ds_packages_list.isChecked(),
-                enable_android_log=self.ds_android_log.isChecked(),
+            config = self._build_custom_config(
+                duration_seconds,
+                buffer_size_kb,
+                categories,
             )
 
         return PerfettoRequest(
             device_serial=self.device_serial or "",
-            duration_seconds=self._duration_seconds(),
-            buffer_size_kb=self._buffer_kb(),
-            categories=self._selected_atrace_categories(),
+            duration_seconds=duration_seconds,
+            buffer_size_kb=buffer_size_kb,
+            categories=categories,
             output_dir=self.output_path.output_dir(),
             preset=preset,
             config=config,
@@ -498,7 +509,7 @@ class PerfettoPanel(BasePanel):
         try:
             size = os.path.getsize(path)
             file_size = f"{size / (1024 * 1024):.1f} MB" if size >= 1024 * 1024 else f"{size / 1024:.0f} KB"
-        except Exception:
+        except OSError:
             file_size = ""
         self.result_card.show_result(
             file_name=file_name,

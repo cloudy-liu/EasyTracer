@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -58,7 +58,7 @@ class ComboPanel(BasePanel):
         super().__init__()
         self.presenter = presenter
         self.device_serial = device_serial
-        self._auxiliary_options: Dict[str, bool] = {}
+        self._auxiliary_options: dict[str, bool] = {}
         self._selected_categories: list[str] = list(DEFAULT_ATRACE_CATEGORIES)
 
         self._update_emitter = _UpdateEmitter()
@@ -190,7 +190,7 @@ class ComboPanel(BasePanel):
 
         return self.target_combo.currentIndex() == self.target_combo.count() - 1
 
-    def set_auxiliary_options(self, options: Dict[str, bool]) -> None:
+    def set_auxiliary_options(self, options: dict[str, bool]) -> None:
         """Stores auxiliary output options from the main window."""
 
         self._auxiliary_options = options
@@ -240,58 +240,115 @@ class ComboPanel(BasePanel):
             return self.target_input.text().strip() or None
         return None
 
+    def _device_serial_value(self) -> str:
+        """Return the selected serial or an empty fallback."""
+        return self.device_serial or ""
+
+    def _build_systrace_request(
+        self,
+        device_serial: str,
+        duration: int,
+        output_dir: str,
+        package_name: Optional[str],
+    ) -> Optional[SystraceRequest]:
+        # Keep per-tool request assembly isolated so optional tool wiring
+        # stays readable in _build_request().
+        if not self.systrace_cb.isChecked():
+            return None
+
+        return SystraceRequest(
+            device_serial=device_serial,
+            categories=self._selected_categories,
+            duration_seconds=duration,
+            app_name=package_name,
+            output_dir=output_dir,
+        )
+
+    def _build_perfetto_request(
+        self,
+        device_serial: str,
+        duration: int,
+        output_dir: str,
+    ) -> Optional[PerfettoRequest]:
+        if not self.perfetto_cb.isChecked():
+            return None
+
+        return PerfettoRequest(
+            device_serial=device_serial,
+            duration_seconds=duration,
+            categories=self._selected_categories,
+            output_dir=output_dir,
+        )
+
+    def _build_simpleperf_request(
+        self,
+        device_serial: str,
+        duration: int,
+        output_dir: str,
+        package_name: Optional[str],
+    ) -> Optional[SimpleperfRequest]:
+        if not self.simpleperf_cb.isChecked():
+            return None
+
+        return SimpleperfRequest(
+            device_serial=device_serial,
+            app_name=package_name,
+            duration_seconds=duration,
+            frequency=int(self.settings_dialog.simpleperf_freq.currentText()),
+            cold_start=self.settings_dialog.cold_start_cb.isChecked(),
+            output_dir=output_dir,
+        )
+
+    def _build_traceview_request(
+        self,
+        device_serial: str,
+        output_dir: str,
+        package_name: Optional[str],
+    ) -> Optional[TraceviewStartRequest]:
+        if not (self.traceview_cb.isChecked() and package_name):
+            return None
+
+        return TraceviewStartRequest(
+            device_serial=device_serial,
+            package_name=package_name,
+            output_dir=output_dir,
+        )
+
     def _build_request(self) -> ComboRequest:
         """Builds a combo request from the current UI state."""
 
+        # Shared capture fields fan out into whichever tracer requests are
+        # currently enabled.
+        device_serial = self._device_serial_value()
         output_dir = self.output_path.output_dir()
         package_name = self._target_package()
         duration = int(self.duration_spin.value())
 
         return ComboRequest(
-            device_serial=self.device_serial or "",
+            device_serial=device_serial,
             duration_seconds=duration,
             output_dir=output_dir,
-            systrace=(
-                SystraceRequest(
-                    device_serial=self.device_serial or "",
-                    categories=self._selected_categories,
-                    duration_seconds=duration,
-                    app_name=package_name,
-                    output_dir=output_dir,
-                )
-                if self.systrace_cb.isChecked()
-                else None
+            systrace=self._build_systrace_request(
+                device_serial,
+                duration,
+                output_dir,
+                package_name,
             ),
-            perfetto=(
-                PerfettoRequest(
-                    device_serial=self.device_serial or "",
-                    duration_seconds=duration,
-                    categories=self._selected_categories,
-                    output_dir=output_dir,
-                )
-                if self.perfetto_cb.isChecked()
-                else None
+            perfetto=self._build_perfetto_request(
+                device_serial,
+                duration,
+                output_dir,
             ),
-            simpleperf=(
-                SimpleperfRequest(
-                    device_serial=self.device_serial or "",
-                    app_name=package_name,
-                    duration_seconds=duration,
-                    frequency=int(self.settings_dialog.simpleperf_freq.currentText()),
-                    cold_start=self.settings_dialog.cold_start_cb.isChecked(),
-                    output_dir=output_dir,
-                )
-                if self.simpleperf_cb.isChecked()
-                else None
+            simpleperf=self._build_simpleperf_request(
+                device_serial,
+                duration,
+                output_dir,
+                package_name,
             ),
-            traceview=(
-                TraceviewStartRequest(
-                    device_serial=self.device_serial or "",
-                    package_name=package_name,
-                    output_dir=output_dir,
-                )
-                if self.traceview_cb.isChecked() and package_name
-                else None
+            traceview=self._build_traceview_request(
+                device_serial,
+                output_dir,
+                package_name,
             ),
             auxiliary_options=self._auxiliary_options,
         )

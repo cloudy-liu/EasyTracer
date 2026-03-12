@@ -1,6 +1,5 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
-from pathlib import Path
 
 from click.testing import CliRunner
 
