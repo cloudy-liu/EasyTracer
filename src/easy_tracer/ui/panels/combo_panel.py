@@ -4,6 +4,11 @@ from typing import Any, Dict, Optional
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from easy_tracer.models.category_registry import (
+    CATEGORY_DESCRIPTIONS,
+    DEFAULT_ATRACE_CATEGORIES,
+    detect_preset_name,
+)
 from easy_tracer.models.requests import (
     ComboRequest,
     PerfettoRequest,
@@ -14,6 +19,7 @@ from easy_tracer.models.requests import (
 from easy_tracer.presenters.combo_presenter import ComboPresenter
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
 from easy_tracer.ui.dialogs.base_settings_dialog import BaseSettingsDialog
+from easy_tracer.ui.dialogs.category_dialog import CategoryDialog, CategorySummaryWidget
 from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.qt_threading import run_in_thread
 
@@ -53,6 +59,7 @@ class ComboPanel(BasePanel):
         self.presenter = presenter
         self.device_serial = device_serial
         self._auxiliary_options: Dict[str, bool] = {}
+        self._selected_categories: list[str] = list(DEFAULT_ATRACE_CATEGORIES)
 
         self._update_emitter = _UpdateEmitter()
         self._update_emitter.updated.connect(self.update_view)
@@ -104,6 +111,7 @@ class ComboPanel(BasePanel):
         self.result_text.setReadOnly(True)
 
         self._build_layout()
+        self._update_category_summary()
         self.update_device(self.device_serial)
 
     def _build_layout(self) -> None:
@@ -136,12 +144,41 @@ class ComboPanel(BasePanel):
         row2.addWidget(self.traceview_cb)
         row2.addStretch(1)
 
+        # Category summary with chip display
+        self._category_summary = CategorySummaryWidget()
+        self._category_summary.select_requested.connect(self._on_select_categories)
+
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(QtWidgets.QLabel("Combo Configuration"))
         layout.addLayout(row1)
         layout.addLayout(row2)
+        layout.addWidget(self._category_summary)
         layout.addWidget(QtWidgets.QLabel("Results"))
         layout.addWidget(self.result_text, 1)
+
+    # =========================================================================
+    # CATEGORY SELECTION
+    # =========================================================================
+
+    def _on_select_categories(self) -> None:
+        """Open the category dialog and apply user selection."""
+        all_cats = sorted(CATEGORY_DESCRIPTIONS.keys())
+        selected, accepted = CategoryDialog.select_categories(
+            self, all_cats, set(self._selected_categories),
+        )
+        if accepted:
+            self._selected_categories = selected
+            self._update_category_summary()
+
+    def _update_category_summary(self) -> None:
+        preset_name = detect_preset_name(set(self._selected_categories))
+        self._category_summary.update_summary(
+            self._selected_categories, len(CATEGORY_DESCRIPTIONS), preset_name,
+        )
+
+    # =========================================================================
+    # EVENT HANDLERS
+    # =========================================================================
 
     def _toggle_target_input(self, _text: str) -> None:
         is_custom = self._is_custom_target_selected()
@@ -217,7 +254,7 @@ class ComboPanel(BasePanel):
             systrace=(
                 SystraceRequest(
                     device_serial=self.device_serial or "",
-                    categories=["sched", "gfx", "view", "wm", "am"],
+                    categories=self._selected_categories,
                     duration_seconds=duration,
                     app_name=package_name,
                     output_dir=output_dir,
@@ -229,6 +266,7 @@ class ComboPanel(BasePanel):
                 PerfettoRequest(
                     device_serial=self.device_serial or "",
                     duration_seconds=duration,
+                    categories=self._selected_categories,
                     output_dir=output_dir,
                 )
                 if self.perfetto_cb.isChecked()

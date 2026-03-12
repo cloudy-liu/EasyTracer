@@ -4,34 +4,33 @@ Systrace Panel
 Configuration and control panel for Android systrace capture.
 
 Architecture:
-- CategorySelector: grouped, filterable category selection
-- Inline configuration: Duration/Target/Buffer directly in panel (no modal)
+- CategoryDialog: modal category picker (replaces inline selector)
+- CategorySummaryWidget: compact inline status display
+- Inline configuration: Duration/Target/Buffer directly in panel
 - Presenter: handles all capture logic
-
-Removed: Ftrace tab (dead code - UI allowed selection but start_capture never used it)
 """
 
 from typing import Optional, Dict
 from PySide6 import QtCore, QtWidgets, QtGui
+from easy_tracer.models.category_registry import (
+    CATEGORY_DESCRIPTIONS,
+    DEFAULT_ATRACE_CATEGORIES,
+    detect_preset_name,
+)
 from easy_tracer.models.requests import SystraceRequest
 from easy_tracer.presenters.systrace_presenter import SystracePresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
-from easy_tracer.ui.components.category_selector import CategorySelector
 from easy_tracer.ui.components.cards import DeprecationBanner
+from easy_tracer.ui.dialogs.category_dialog import CategoryDialog, CategorySummaryWidget
 from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.theme import Spacing
 
 
 # =============================================================================
-# DEFAULT CATEGORIES
+# CONSTANTS
 # =============================================================================
 
-DEFAULT_ATRACE_CATEGORIES = [
-    "sched", "freq", "idle", "am", "wm", "view", "gfx",
-    "input", "dalvik", "binder_driver", "binder_lock",
-]
-DEFAULT_ATRACE_SET = set(DEFAULT_ATRACE_CATEGORIES)
 BUFFER_PRESET_VALUES_KB = [4096, 8192, 10240, 16384, 32768, 65536]
 
 
@@ -51,17 +50,11 @@ class SystracePanel(BasePanel):
     """Main Systrace configuration panel.
 
     Layout:
-    ┌─ CAPTURE CONFIGURATION ───────────────────────────────────┐
-    │ Duration: [5s v]  Target: [Top App v]  Buffer: [10240 KB] │
-    │ Output: [...output...]  [📂]   [ ] Enhanced thread names  │
-    └───────────────────────────────────────────────────────────┘
-    ┌─ TRACE CATEGORIES ────────────────────────────────────────┐
-    │ [Filter...                           ] [12 of 45] [Refresh]│
-    │ Presets: (Minimal) (Graphics) (System) [All] [Clear]      │
-    ├───────────────────────────────────────────────────────────┤
-    │ ▼ Scheduling (4/5)    ▼ Graphics (6/8)    ▼ Binder (2/2)  │
-    │   [x] sched             [x] gfx             [x] binder    │
-    └───────────────────────────────────────────────────────────┘
+    +-- CAPTURE CONFIGURATION ------------------------------------------+
+    | Duration: [5s v]  Target: [Top App v]  Buffer: [10240 KB]         |
+    | Output: [...output...]  [dir]   [ ] Enhanced thread names         |
+    | Categories: Standard (11 of 45)  [Select...]                      |
+    +-------------------------------------------------------------------+
     """
 
     def __init__(
@@ -76,6 +69,8 @@ class SystracePanel(BasePanel):
         self.default_output_dir = default_output_dir
         self._auto_loaded_serial: Optional[str] = None
         self._auxiliary_options: Dict[str, bool] = {}
+        self._all_categories: list[str] = []
+        self._selected_categories: list[str] = list(DEFAULT_ATRACE_CATEGORIES)
 
         # Presenter update bridge
         self._update_emitter = _UpdateEmitter()
@@ -83,6 +78,7 @@ class SystracePanel(BasePanel):
         self.presenter.bind_view_update(self._update_emitter.updated.emit)
 
         self._setup_ui()
+        self._update_category_summary()
         self.update_device(self.device_serial)
 
     def set_auxiliary_options(self, options: Dict[str, bool]) -> None:
@@ -261,22 +257,13 @@ class SystracePanel(BasePanel):
         output_row.addWidget(self.enhance_cb)
         config_layout.addLayout(output_row)
 
+        # Row 2: Category summary + Select dialog trigger
+        self._category_summary = CategorySummaryWidget()
+        self._category_summary.select_requested.connect(self._on_select_categories)
+        config_layout.addWidget(self._category_summary)
+
         layout.addWidget(config_group)
-
-        # =====================================================================
-        # TRACE CATEGORIES GROUP
-        # =====================================================================
-        categories_group = QtWidgets.QGroupBox("Trace Categories")
-        categories_layout = QtWidgets.QVBoxLayout(categories_group)
-        categories_layout.setContentsMargins(Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD)
-        categories_layout.setSpacing(Spacing.SM)
-
-        self.category_selector = CategorySelector()
-        self.category_selector.refresh_button.clicked.connect(self._on_load_categories)
-        self.category_selector.selection_changed.connect(self._notify_readiness)
-        categories_layout.addWidget(self.category_selector, 1)
-
-        layout.addWidget(categories_group, 1)
+        layout.addStretch(1)
         self._sync_target_layout(is_custom=False)
 
     # =========================================================================
@@ -321,10 +308,30 @@ class SystracePanel(BasePanel):
         output_dir = self.output_path.output_dir()
         QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(output_dir))
 
+    # =========================================================================
+    # CATEGORY SELECTION
+    # =========================================================================
+
+    def _on_select_categories(self) -> None:
+        """Open the category dialog and apply user selection."""
+        all_cats = self._all_categories or sorted(CATEGORY_DESCRIPTIONS.keys())
+        selected, accepted = CategoryDialog.select_categories(
+            self, all_cats, set(self._selected_categories),
+        )
+        if accepted:
+            self._selected_categories = selected
+            self._update_category_summary()
+
+    def _update_category_summary(self) -> None:
+        total = len(self._all_categories) or len(CATEGORY_DESCRIPTIONS)
+        preset_name = detect_preset_name(set(self._selected_categories))
+        self._category_summary.update_summary(
+            self._selected_categories, total, preset_name,
+        )
+
     def _on_load_categories(self) -> None:
         if not self.device_serial or self.presenter.is_loading_categories:
             return
-        self.category_selector.clear()
         run_in_thread(self.presenter.load_categories, self.device_serial)
 
     # =========================================================================
@@ -333,19 +340,17 @@ class SystracePanel(BasePanel):
 
     def update_device(self, serial: Optional[str]) -> None:
         self.device_serial = serial
-        can_load = bool(serial)
-        self.category_selector.refresh_button.setEnabled(can_load)
         self._notify_readiness()
 
         if not serial:
-            self.category_selector.clear()
+            self._all_categories = []
             self._auto_loaded_serial = None
             self.status_message.emit("Please select a device.")
         else:
             self.status_message.emit(f"Selected device: {serial}.")
             should_auto_load = (
                 serial != self._auto_loaded_serial
-                or len(self.category_selector.get_selected()) == 0
+                or not self._selected_categories
             )
             if should_auto_load:
                 self._auto_loaded_serial = serial
@@ -362,13 +367,12 @@ class SystracePanel(BasePanel):
         )
         self.busy_changed.emit(busy)
 
-        # Populate categories when loaded
+        # Store device categories when loaded
         if self.presenter.categories and not self.presenter.is_loading_categories:
-            if len(self.category_selector.get_selected()) == 0:
-                self.category_selector.set_categories(
-                    self.presenter.categories,
-                    DEFAULT_ATRACE_SET,
-                )
+            self._all_categories = self.presenter.categories
+            if not self._selected_categories:
+                self._selected_categories = list(DEFAULT_ATRACE_CATEGORIES)
+            self._update_category_summary()
 
         if self.presenter.error_message:
             self.error_message.emit(self.presenter.error_message)
@@ -383,9 +387,6 @@ class SystracePanel(BasePanel):
         elif not self.presenter.is_capturing:
             self.status_message.emit("Ready.")
 
-        self.category_selector.refresh_button.setEnabled(
-            bool(self.device_serial) and not busy
-        )
         self._notify_readiness()
 
     # =========================================================================
@@ -434,17 +435,12 @@ class SystracePanel(BasePanel):
             self.error_message.emit("No device selected.")
             return
 
-        selected = self.category_selector.get_selected()
+        selected = self._selected_categories
         if not selected:
-            # Fallback to defaults if no categories loaded
-            if len(self.presenter.categories or []) == 0:
-                selected = list(DEFAULT_ATRACE_CATEGORIES)
-                self.status_message.emit(
-                    "Using default categories (device list unavailable)."
-                )
-            else:
-                self.error_message.emit("No categories selected.")
-                return
+            selected = list(DEFAULT_ATRACE_CATEGORIES)
+            self.status_message.emit(
+                "Using default categories (none selected)."
+            )
 
         run_in_thread(
             self.presenter.run_request,

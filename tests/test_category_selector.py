@@ -1,6 +1,7 @@
 from PySide6 import QtWidgets
 
-from easy_tracer.ui.components.category_selector import CategorySelector, PRESETS
+from easy_tracer.models.category_registry import ATRACE_PRESETS
+from easy_tracer.ui.components.category_selector import CategorySelector
 
 
 def _build_selector() -> CategorySelector:
@@ -8,7 +9,7 @@ def _build_selector() -> CategorySelector:
     assert app is not None
 
     selector = CategorySelector()
-    categories = sorted(set().union(*PRESETS.values()))
+    categories = sorted(set().union(*(set(v) for v in ATRACE_PRESETS.values())))
     selector.set_categories(categories, set())
     selector.show()
     app.processEvents()
@@ -20,13 +21,13 @@ def test_clicking_preset_keeps_button_checked():
     assert app is not None
 
     selector = _build_selector()
-    preset_btn = selector._presets._buttons["minimal"]
+    preset_btn = selector._presets._buttons["standard"]
 
     preset_btn.click()
     app.processEvents()
 
     assert preset_btn.isChecked() is True
-    assert set(selector.get_selected()) == PRESETS["minimal"]
+    assert set(selector.get_selected()) == set(ATRACE_PRESETS["standard"])
 
 
 def test_manual_selection_change_clears_active_preset():
@@ -34,7 +35,7 @@ def test_manual_selection_change_clears_active_preset():
     assert app is not None
 
     selector = _build_selector()
-    preset_btn = selector._presets._buttons["minimal"]
+    preset_btn = selector._presets._buttons["standard"]
 
     preset_btn.click()
     app.processEvents()
@@ -78,9 +79,9 @@ def test_default_selection_highlights_matching_preset():
     assert app is not None
 
     selector = CategorySelector()
-    categories = sorted(set().union(*PRESETS.values()))
-    selector.set_categories(categories, PRESETS["minimal"])
+    categories = sorted(set().union(*(set(v) for v in ATRACE_PRESETS.values())))
+    selector.set_categories(categories, set(ATRACE_PRESETS["standard"]))
     selector.show()
     app.processEvents()
 
-    assert selector._presets._buttons["minimal"].isChecked() is True
+    assert selector._presets._buttons["standard"].isChecked() is True

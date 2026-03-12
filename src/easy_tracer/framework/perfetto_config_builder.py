@@ -9,6 +9,8 @@ Reference: https://ui.perfetto.dev/#!/record
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, field
 
+from easy_tracer.models.category_registry import ATRACE_PRESETS
+
 
 # =============================================================================
 # PRESET DEFINITIONS
@@ -33,10 +35,7 @@ PRESETS: Dict[str, PerfettoPreset] = {
         description="Basic system tracing with CPU scheduling and atrace",
         buffer_size_kb=32768,  # 32 MB
         duration_ms=10000,
-        atrace_categories=[
-            "sched", "freq", "idle", "am", "wm", "gfx", "view",
-            "input", "dalvik", "binder_driver", "binder_lock",
-        ],
+        atrace_categories=list(ATRACE_PRESETS["standard"]),
         ftrace_events=[
             "sched/sched_switch",
             "sched/sched_wakeup",
@@ -52,11 +51,7 @@ PRESETS: Dict[str, PerfettoPreset] = {
         description="Standard + SurfaceFlinger frame timeline and GPU memory",
         buffer_size_kb=65536,  # 64 MB
         duration_ms=10000,
-        atrace_categories=[
-            "sched", "freq", "idle", "am", "wm", "gfx", "view",
-            "input", "dalvik", "binder_driver", "binder_lock",
-            "hal", "res",
-        ],
+        atrace_categories=list(ATRACE_PRESETS["graphics"]),
         ftrace_events=[
             "sched/sched_switch",
             "sched/sched_wakeup",
@@ -78,10 +73,7 @@ PRESETS: Dict[str, PerfettoPreset] = {
         description="Standard + detailed memory tracking and heap profiling",
         buffer_size_kb=65536,  # 64 MB
         duration_ms=10000,
-        atrace_categories=[
-            "sched", "freq", "idle", "am", "wm", "gfx", "view",
-            "dalvik", "binder_driver",
-        ],
+        atrace_categories=list(ATRACE_PRESETS["memory"]),
         ftrace_events=[
             "sched/sched_switch",
             "sched/sched_wakeup",
@@ -112,12 +104,7 @@ PRESETS: Dict[str, PerfettoPreset] = {
         description="Complete system tracing with all data sources",
         buffer_size_kb=307200,  # 300 MB
         duration_ms=10000,
-        atrace_categories=[
-            "sched", "freq", "idle", "am", "wm", "gfx", "view",
-            "input", "dalvik", "binder_driver", "binder_lock",
-            "hal", "res", "webview", "network", "audio", "video",
-            "camera", "sm", "database", "vibrator",
-        ],
+        atrace_categories=list(ATRACE_PRESETS["full"]),
         ftrace_events=[
             "sched/sched_switch",
             "sched/sched_wakeup",

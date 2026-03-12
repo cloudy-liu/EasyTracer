@@ -141,11 +141,7 @@ def test_perfetto_panel_start_capture_builds_perfetto_request(monkeypatch):
         flush_period=_spin_value(30000),
     )
     panel.duration_combo = _text_value("10s")
-    panel.atrace_checkboxes = {
-        "gfx": _checkbox(True),
-        "sched": _checkbox(True),
-        "view": _checkbox(False),
-    }
+    panel._atrace_categories = ["gfx", "sched"]
     panel.ds_ftrace = _checkbox(True)
     panel.ds_process_stats = _checkbox(True)
     panel.ds_sys_stats = _checkbox(True)
@@ -190,6 +186,7 @@ def test_combo_panel_start_capture_builds_combo_request(monkeypatch):
     panel.presenter = presenter
     panel.device_serial = "SER123"
     panel._auxiliary_options = {"logcat": True, "packages": False}
+    panel._selected_categories = ["sched", "gfx", "view", "wm", "am"]
     panel.output_path = SimpleNamespace(output_dir=lambda: "combo-out")
     panel.capture_started = MagicMock()
     panel.duration_spin = _spin_value(12)

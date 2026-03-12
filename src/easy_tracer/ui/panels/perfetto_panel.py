@@ -5,8 +5,8 @@ Configuration and control panel for Perfetto trace recording.
 
 Features:
 - Preset-based configuration (Standard, Graphics, Memory, Full, Custom)
-- Data source selection tabs
-- Atrace category selection
+- Data source selection tabs (Perfetto-specific)
+- Atrace category selection via modal dialog (unified registry)
 - Auxiliary output options
 """
 
@@ -14,14 +14,41 @@ import os
 from typing import Optional, Dict
 from PySide6 import QtCore, QtWidgets, QtGui
 from easy_tracer.framework.perfetto_config_builder import PerfettoConfig
+from easy_tracer.models.category_registry import (
+    CATEGORY_DESCRIPTIONS,
+    ATRACE_PRESETS,
+    detect_preset_name,
+)
 from easy_tracer.models.requests import PerfettoRequest
 from easy_tracer.presenters.perfetto_presenter import PerfettoPresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
 from easy_tracer.ui.components.cards import ResultCard
+from easy_tracer.ui.dialogs.category_dialog import CategoryDialog, CategorySummaryWidget
 from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.dialogs.base_settings_dialog import BaseSettingsDialog
 from easy_tracer.ui.theme import Spacing
+
+
+# =============================================================================
+# PERFETTO DATA SOURCE PRESETS (Perfetto-specific, NOT atrace)
+# =============================================================================
+
+_DS_ENABLED: dict[str, set[str]] = {
+    "standard": {"ftrace", "process_stats"},
+    "graphics": {"ftrace", "process_stats", "surfaceflinger", "gpu_memory"},
+    "memory":   {"ftrace", "process_stats", "sys_stats"},
+    "full":     {
+        "ftrace", "process_stats", "sys_stats", "system_info",
+        "surfaceflinger", "gpu_memory", "packages_list", "android_log",
+    },
+}
+
+_ALL_DS_KEYS = [
+    "ftrace", "process_stats", "sys_stats", "system_info",
+    "surfaceflinger", "gpu_memory", "gpu_work", "heapprofd",
+    "java_hprof", "power", "perf", "packages_list", "android_log", "network",
+]
 
 
 class _UpdateEmitter(QtCore.QObject):
@@ -54,18 +81,19 @@ class PerfettoPanel(BasePanel):
     """Perfetto trace recording panel.
 
     Layout:
-    ┌─ CAPTURE SETTINGS ────────────────────────────────────────┐
-    │ Duration: [10s v]  Buffer: [150 MB v]                     │
-    │ Output: [...output...]  [📂]  [Settings]                  │
-    │ PRESETS: (Standard) (Graphics) (Memory) (Full) (Custom)   │
-    └───────────────────────────────────────────────────────────┘
-    ┌─ DATA SOURCES ────────────────────────────────────────────┐
-    │ [CPU/Sched] [GPU/Graphics] [Memory] [Power] [Misc]        │
-    └───────────────────────────────────────────────────────────┘
-    ┌─ ATRACE CATEGORIES ───────────────────────────────────────┐
-    │ Target Apps: [*                                         ] │
-    │ [x] gfx [x] view [x] wm [x] am [x] sched ...              │
-    └───────────────────────────────────────────────────────────┘
+    +-- CAPTURE SETTINGS -------------------------------------------+
+    | Duration: [10s v]  Mode: (Normal) (Long)                      |
+    | Output: [...output...]  [dir]  [Settings]                     |
+    | PRESETS: (Standard) (Graphics) (Memory) (Full) (Custom)       |
+    +---------------------------------------------------------------+
+    +-- DATA SOURCES -----------------------------------------------+
+    | [CPU/Sched] [GPU/Graphics] [Memory] [Power] [Misc]            |
+    +---------------------------------------------------------------+
+    +-- ATRACE -----------------------------------------------------+
+    | Target Apps: [*                                            ]   |
+    | Categories: Standard (11 of 45)                [Select...]    |
+    | [am] [binder_driver] [binder_lock] [dalvik] [freq] [gfx] ... |
+    +---------------------------------------------------------------+
     """
 
     def __init__(self, presenter: PerfettoPresenter, device_serial: Optional[str], default_output_dir: str):
@@ -75,6 +103,7 @@ class PerfettoPanel(BasePanel):
         self.default_output_dir = default_output_dir
         self._auxiliary_options: Dict[str, bool] = {}
         self._current_preset: str = "standard"
+        self._atrace_categories: list[str] = list(ATRACE_PRESETS["standard"])
         self._update_emitter = _UpdateEmitter()
         self._update_emitter.updated.connect(self.update_view)
         self.presenter.bind_view_update(self._update_emitter.updated.emit)
@@ -95,7 +124,7 @@ class PerfettoPanel(BasePanel):
         settings_layout.setContentsMargins(Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD)
         settings_layout.setSpacing(Spacing.SM)
 
-        # Row 1: Duration, Buffer, Mode
+        # Row 1: Duration, Mode
         row1 = QtWidgets.QHBoxLayout()
         row1.setSpacing(Spacing.LG)
 
@@ -188,14 +217,14 @@ class PerfettoPanel(BasePanel):
         layout.addWidget(sources_group)
 
         # =====================================================================
-        # ATRACE CATEGORIES GROUP
+        # ATRACE GROUP (Target Apps + Category Summary)
         # =====================================================================
-        atrace_group = QtWidgets.QGroupBox("Atrace Categories")
+        atrace_group = QtWidgets.QGroupBox("Atrace")
         atrace_layout = QtWidgets.QVBoxLayout(atrace_group)
         atrace_layout.setContentsMargins(Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD)
         atrace_layout.setSpacing(Spacing.SM)
 
-        # Target apps
+        # Target apps row
         app_row = QtWidgets.QHBoxLayout()
         app_row.addWidget(QtWidgets.QLabel("Target Apps:"))
         self.atrace_app = QtWidgets.QLineEdit()
@@ -204,28 +233,11 @@ class PerfettoPanel(BasePanel):
         app_row.addWidget(self.atrace_app, 1)
         atrace_layout.addLayout(app_row)
 
-        # Category checkboxes
-        self.atrace_checkboxes: Dict[str, QtWidgets.QCheckBox] = {}
-        categories = [
-            ("gfx", "Graphics"), ("input", "Input"), ("view", "View"),
-            ("wm", "Window Manager"), ("am", "Activity Manager"), ("sched", "Scheduler"),
-            ("freq", "CPU Freq"), ("idle", "CPU Idle"), ("dalvik", "Dalvik VM"),
-            ("binder_driver", "Binder Driver"), ("binder_lock", "Binder Lock"),
-            ("hal", "HAL"), ("res", "Resources"), ("webview", "WebView"),
-            ("network", "Network"), ("audio", "Audio"), ("video", "Video"),
-            ("camera", "Camera"),
-        ]
+        # Category summary with chip display
+        self._category_summary = CategorySummaryWidget()
+        self._category_summary.select_requested.connect(self._on_select_atrace)
+        atrace_layout.addWidget(self._category_summary)
 
-        cat_grid = QtWidgets.QGridLayout()
-        cat_grid.setSpacing(Spacing.SM)
-        cols = 6
-        for i, (cat_id, cat_label) in enumerate(categories):
-            cb = QtWidgets.QCheckBox(cat_id)
-            cb.setToolTip(cat_label)
-            self.atrace_checkboxes[cat_id] = cb
-            cat_grid.addWidget(cb, i // cols, i % cols)
-
-        atrace_layout.addLayout(cat_grid)
         layout.addWidget(atrace_group)
 
         # =====================================================================
@@ -236,6 +248,24 @@ class PerfettoPanel(BasePanel):
         self.result_card.view_trace_clicked.connect(self._on_view_in_perfetto)
         layout.addWidget(self.result_card)
 
+        # Build DS checkbox lookup after all tabs are created
+        self._ds_map: dict[str, QtWidgets.QCheckBox] = {
+            "ftrace": self.ds_ftrace,
+            "process_stats": self.ds_process_stats,
+            "sys_stats": self.ds_sys_stats,
+            "system_info": self.ds_system_info,
+            "surfaceflinger": self.ds_surfaceflinger,
+            "gpu_memory": self.ds_gpu_memory,
+            "gpu_work": self.ds_gpu_work,
+            "heapprofd": self.ds_heapprofd,
+            "java_hprof": self.ds_java_hprof,
+            "power": self.ds_power,
+            "perf": self.ds_perf,
+            "packages_list": self.ds_packages_list,
+            "android_log": self.ds_android_log,
+            "network": self.ds_network,
+        }
+
         # Connect preset buttons AFTER all UI is created
         for btn in self.preset_group.buttons():
             preset_id = btn.property("preset_id")
@@ -245,6 +275,10 @@ class PerfettoPanel(BasePanel):
         if self._standard_preset_btn:
             self._standard_preset_btn.setChecked(True)
         self._apply_preset("standard")
+
+    # =========================================================================
+    # DATA SOURCE TAB BUILDERS
+    # =========================================================================
 
     def _build_core_tab(self) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
@@ -319,81 +353,57 @@ class PerfettoPanel(BasePanel):
         layout.addStretch(1)
         return widget
 
+    # =========================================================================
+    # PRESET APPLICATION
+    # =========================================================================
+
     def _on_preset_toggled(self, checked: bool, preset_id: str) -> None:
         if checked:
             self._apply_preset(preset_id)
 
     def _apply_preset(self, preset_id: str) -> None:
-        """Apply a preset configuration."""
+        """Apply preset: data sources (local) + atrace (from registry)."""
         self._current_preset = preset_id
-
-        # Preset configurations
-        presets = {
-            "standard": {
-                "ds": {"ftrace": True, "process_stats": True, "sys_stats": False,
-                       "system_info": False, "surfaceflinger": False, "gpu_memory": False,
-                       "gpu_work": False, "heapprofd": False, "java_hprof": False,
-                       "power": False, "perf": False, "packages_list": False,
-                       "android_log": False, "network": False},
-                "atrace": ["sched", "freq", "idle", "am", "wm", "gfx", "view",
-                          "input", "dalvik", "binder_driver", "binder_lock"],
-            },
-            "graphics": {
-                "ds": {"ftrace": True, "process_stats": True, "sys_stats": False,
-                       "system_info": False, "surfaceflinger": True, "gpu_memory": True,
-                       "gpu_work": False, "heapprofd": False, "java_hprof": False,
-                       "power": False, "perf": False, "packages_list": False,
-                       "android_log": False, "network": False},
-                "atrace": ["sched", "freq", "idle", "am", "wm", "gfx", "view",
-                          "input", "dalvik", "binder_driver", "binder_lock", "hal", "res"],
-            },
-            "memory": {
-                "ds": {"ftrace": True, "process_stats": True, "sys_stats": True,
-                       "system_info": False, "surfaceflinger": False, "gpu_memory": False,
-                       "gpu_work": False, "heapprofd": False, "java_hprof": False,
-                       "power": False, "perf": False, "packages_list": False,
-                       "android_log": False, "network": False},
-                "atrace": ["sched", "freq", "idle", "am", "wm", "gfx", "view", "dalvik"],
-            },
-            "full": {
-                "ds": {"ftrace": True, "process_stats": True, "sys_stats": True,
-                       "system_info": True, "surfaceflinger": True, "gpu_memory": True,
-                       "gpu_work": False, "heapprofd": False, "java_hprof": False,
-                       "power": False, "perf": False, "packages_list": True,
-                       "android_log": True, "network": False},
-                "atrace": ["sched", "freq", "idle", "am", "wm", "gfx", "view",
-                          "input", "dalvik", "binder_driver", "binder_lock",
-                          "hal", "res", "webview", "network", "audio", "video", "camera"],
-            },
-        }
-
         if preset_id == "custom":
-            # Don't change anything, let user configure manually
             return
 
-        config = presets.get(preset_id, presets["standard"])
+        # Data sources (Perfetto-specific concern)
+        enabled = _DS_ENABLED.get(preset_id, _DS_ENABLED["standard"])
+        for key, cb in self._ds_map.items():
+            cb.setChecked(key in enabled)
 
-        # Apply data sources
-        ds = config["ds"]
-        self.ds_ftrace.setChecked(ds["ftrace"])
-        self.ds_process_stats.setChecked(ds["process_stats"])
-        self.ds_sys_stats.setChecked(ds["sys_stats"])
-        self.ds_system_info.setChecked(ds["system_info"])
-        self.ds_surfaceflinger.setChecked(ds["surfaceflinger"])
-        self.ds_gpu_memory.setChecked(ds["gpu_memory"])
-        self.ds_gpu_work.setChecked(ds["gpu_work"])
-        self.ds_heapprofd.setChecked(ds["heapprofd"])
-        self.ds_java_hprof.setChecked(ds["java_hprof"])
-        self.ds_power.setChecked(ds["power"])
-        self.ds_perf.setChecked(ds["perf"])
-        self.ds_packages_list.setChecked(ds["packages_list"])
-        self.ds_android_log.setChecked(ds["android_log"])
-        self.ds_network.setChecked(ds["network"])
+        # Atrace categories (unified registry)
+        self._atrace_categories = list(
+            ATRACE_PRESETS.get(preset_id, ATRACE_PRESETS["standard"])
+        )
+        self._update_category_summary()
 
-        # Apply atrace categories
-        atrace = config["atrace"]
-        for cat_id, cb in self.atrace_checkboxes.items():
-            cb.setChecked(cat_id in atrace)
+    # =========================================================================
+    # ATRACE CATEGORY SELECTION
+    # =========================================================================
+
+    def _on_select_atrace(self) -> None:
+        """Open the category dialog and apply user selection."""
+        all_cats = sorted(CATEGORY_DESCRIPTIONS.keys())
+        selected, accepted = CategoryDialog.select_categories(
+            self, all_cats, set(self._atrace_categories),
+        )
+        if accepted:
+            self._atrace_categories = selected
+            self._update_category_summary()
+
+    def _update_category_summary(self) -> None:
+        preset_name = detect_preset_name(set(self._atrace_categories))
+        self._category_summary.update_summary(
+            self._atrace_categories, len(CATEGORY_DESCRIPTIONS), preset_name,
+        )
+
+    def _selected_atrace_categories(self) -> list[str]:
+        return list(self._atrace_categories)
+
+    # =========================================================================
+    # AUXILIARY / NAVIGATION
+    # =========================================================================
 
     def set_auxiliary_options(self, options: Dict[str, bool]) -> None:
         """Set auxiliary output options from main window."""
@@ -434,8 +444,9 @@ class PerfettoPanel(BasePanel):
             self.status_message.emit(f"Trace saved to: {self.presenter.last_output_path}")
             self._show_result_card()
 
-    def _selected_atrace_categories(self) -> list[str]:
-        return [cat_id for cat_id, cb in self.atrace_checkboxes.items() if cb.isChecked()]
+    # =========================================================================
+    # CAPTURE CONTROL
+    # =========================================================================
 
     def _duration_seconds(self) -> int:
         text = self.duration_combo.currentText()

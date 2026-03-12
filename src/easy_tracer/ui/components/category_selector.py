@@ -13,81 +13,13 @@ Features:
 
 from typing import Optional
 from PySide6 import QtCore, QtWidgets, QtGui
+from easy_tracer.models.category_registry import (
+    CATEGORY_DESCRIPTIONS,
+    ATRACE_PRESETS,
+    PRESET_ORDER,
+)
 from easy_tracer.ui.theme import Colors, Spacing
 from easy_tracer.ui.theme.stylesheet import selection_counter_qss
-
-# =============================================================================
-# CATEGORY DESCRIPTIONS
-# =============================================================================
-
-CATEGORY_DESCRIPTIONS = {
-    "adb": "ADB",
-    "aidl": "AIDL calls",
-    "am": "Activity Manager",
-    "audio": "Audio",
-    "binder_driver": "Binder Kernel driver",
-    "binder_lock": "Binder global lock trace",
-    "bionic": "Bionic C Library",
-    "camera": "Camera",
-    "dalvik": "Dalvik VM",
-    "database": "Database",
-    "disk": "Disk I/O",
-    "freq": "CPU Frequency",
-    "gfx": "Graphics",
-    "hal": "Hardware Modules",
-    "hwui": "Hardware UI",
-    "i2c": "I2C Events",
-    "idle": "CPU Idle",
-    "input": "Input",
-    "ion": "ION allocation",
-    "irq": "IRQ Events",
-    "memory": "Memory",
-    "memreclaim": "Kernel Memory Reclaim",
-    "mmc": "eMMC commands",
-    "network": "Network",
-    "nnapi": "Neural Network API",
-    "pagecache": "Pagecache",
-    "pm": "Power Management",
-    "power": "Power Management",
-    "regulators": "Voltage and Current Regulators",
-    "res": "Resource Loading",
-    "rro": "Runtime Resource Overlay",
-    "rs": "RenderScript",
-    "sched": "CPU Scheduling",
-    "sm": "Sync Manager",
-    "ss": "System Server",
-    "sync": "Synchronization",
-    "thermal": "Thermal event",
-    "vibrator": "Vibrator",
-    "video": "Video",
-    "view": "View System",
-    "webview": "WebView",
-    "wm": "Window Manager",
-    "workq": "Workqueue",
-}
-
-
-# =============================================================================
-# PRESETS
-# =============================================================================
-
-PRESETS = {
-    "minimal": {
-        "sched", "freq", "idle", "am", "wm", "view", "gfx",
-        "input", "dalvik", "binder_driver", "binder_lock",
-    },
-    "graphics": {
-        "sched", "freq", "idle", "am", "wm", "view", "gfx",
-        "input", "dalvik", "binder_driver", "binder_lock",
-        "webview", "res", "rs", "hwui",
-    },
-    "system": {
-        "sched", "freq", "idle", "am", "wm", "view", "gfx",
-        "input", "dalvik", "binder_driver", "binder_lock",
-        "hal", "ss", "pm", "power", "thermal",
-        "disk", "sync", "memory", "memreclaim",
-    },
-}
 
 
 # =============================================================================
@@ -112,9 +44,8 @@ class PresetButtonGroup(QtWidgets.QWidget):
         layout.addWidget(label)
 
         presets = [
-            ("minimal", "Minimal", "Core: sched, freq, gfx, input, binder"),
-            ("graphics", "Graphics", "+ hwui, webview, rs"),
-            ("system", "System", "+ hal, power, disk, memory"),
+            (key, key.capitalize(), f"{len(ATRACE_PRESETS[key])} categories")
+            for key in PRESET_ORDER
         ]
 
         for key, label_text, tooltip in presets:
@@ -449,8 +380,8 @@ class CategorySelector(QtWidgets.QWidget):
             self.set_selected(set(self._all_categories))
         elif preset == "clear":
             self.set_selected(set())
-        elif preset in PRESETS:
-            self.set_selected(PRESETS[preset])
+        elif preset in ATRACE_PRESETS:
+            self.set_selected(set(ATRACE_PRESETS[preset]))
         self._on_selection_changed()
 
     def _on_selection_changed(self) -> None:
@@ -467,7 +398,8 @@ class CategorySelector(QtWidgets.QWidget):
             matched_preset = "clear"
         else:
             matched_preset = next(
-                (preset for preset, categories in PRESETS.items() if selected == categories),
+                (key for key in PRESET_ORDER
+                 if selected == set(ATRACE_PRESETS[key])),
                 None,
             )
         self._presets.set_selected(matched_preset)
