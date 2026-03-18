@@ -44,7 +44,7 @@ class OutputPathWidget(QtWidgets.QWidget):
         self.browse_button = QtWidgets.QToolButton()
         self.browse_button.setText(_ELLIPSIS_BUTTON_TEXT)
         self.browse_button.setToolTip("Browse for directory")
-        self.browse_button.setFixedWidth(32)
+        self.browse_button.setFixedWidth(36)
 
         layout = QtWidgets.QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

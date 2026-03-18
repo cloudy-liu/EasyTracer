@@ -131,10 +131,11 @@ class CaptureService:
                 continue
             try:
                 output_path = output_prefix + suffix
+                logger.info("Dumping %s...", opt_name)
                 dump_fn(device_serial, output_path)
                 results[opt_name] = output_path
-                logger.info(f"Dumped {opt_name} to {output_path}")
+                logger.info("Dumped %s to %s", opt_name, output_path)
             except Exception as e:
-                logger.warning(f"Failed to dump {opt_name}: {e}")
+                logger.warning("Failed to dump %s: %s", opt_name, e)
 
         return results
