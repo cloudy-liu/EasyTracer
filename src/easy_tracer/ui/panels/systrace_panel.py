@@ -300,19 +300,6 @@ class SystracePanel(BasePanel):
     def _format_buffer_label(self, size_kb: int) -> str:
         return f"{size_kb} KB"
 
-    def _build_detail_row(
-        self,
-        label_text: str,
-        field: QtWidgets.QWidget,
-    ) -> QtWidgets.QWidget:
-        row = QtWidgets.QWidget()
-        layout = QtWidgets.QHBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(Spacing.SM)
-        layout.addWidget(QtWidgets.QLabel(label_text))
-        layout.addWidget(field, 1)
-        return row
-
     def _set_detail_row_state(
         self,
         row: QtWidgets.QWidget,

@@ -1,5 +1,6 @@
 from typing import Optional
 from PySide6 import QtCore, QtWidgets
+from easy_tracer.ui.theme import Spacing
 
 class BasePanel(QtWidgets.QWidget):
     """
@@ -50,3 +51,19 @@ class BasePanel(QtWidgets.QWidget):
     def on_capture_state_changed(self, is_running: bool) -> None:
         """Called by presenter when capture starts/stops."""
         pass
+
+    # -- shared UI helpers ---------------------------------------------------
+
+    def _build_detail_row(
+        self,
+        label_text: str,
+        field: QtWidgets.QWidget,
+    ) -> QtWidgets.QWidget:
+        """Label + field row with zero margins, reusable across panels."""
+        row = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(Spacing.SM)
+        layout.addWidget(QtWidgets.QLabel(label_text))
+        layout.addWidget(field, 1)
+        return row

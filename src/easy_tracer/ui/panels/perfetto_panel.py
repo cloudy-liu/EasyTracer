@@ -359,19 +359,6 @@ class PerfettoPanel(BasePanel):
         )
         combo.setMinimumContentsLength(minimum_contents_length)
 
-    def _build_detail_row(
-        self,
-        label_text: str,
-        field: QtWidgets.QWidget,
-    ) -> QtWidgets.QWidget:
-        row = QtWidgets.QWidget()
-        layout = QtWidgets.QHBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(Spacing.SM)
-        layout.addWidget(QtWidgets.QLabel(label_text))
-        layout.addWidget(field, 1)
-        return row
-
     def _build_source_section(
         self,
         title: str,

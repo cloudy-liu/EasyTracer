@@ -82,7 +82,7 @@ class PerfettoService:
             # Use preset
             cfg = config_from_preset(request.preset, duration_ms=request.duration_seconds * 1000)
             if request.atrace_apps:
-                cfg.atrace_apps = list(request.atrace_apps)
+                cfg = replace(cfg, atrace_apps=list(request.atrace_apps))
             config_text = build_config(cfg)
         # else: use simple command-line method (categories + buffer)
 
