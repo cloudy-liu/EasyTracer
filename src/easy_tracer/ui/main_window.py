@@ -262,6 +262,12 @@ class MainWindow(QtWidgets.QMainWindow):
         content_layout.setSpacing(0)
         content_layout.addWidget(self.stack, 1)
 
+        self.content_scroll = QtWidgets.QScrollArea()
+        self.content_scroll.setObjectName("contentScrollArea")
+        self.content_scroll.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+        self.content_scroll.setWidgetResizable(True)
+        self.content_scroll.setWidget(self.content_stack_host)
+
         self.main_column = QtWidgets.QWidget()
         self.main_column.setObjectName("mainColumn")
         main_column_layout = QtWidgets.QVBoxLayout(self.main_column)
@@ -273,7 +279,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.main_splitter.setObjectName("mainVerticalSplitter")
         self.main_splitter.setChildrenCollapsible(False)
         self.main_splitter.setHandleWidth(6)
-        self.main_splitter.addWidget(self.content_stack_host)
+        self.main_splitter.addWidget(self.content_scroll)
         self.main_splitter.addWidget(self.log_panel)
         self.main_splitter.setStretchFactor(0, 1)
         self.main_splitter.setStretchFactor(1, 0)
@@ -386,6 +392,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         QFrame#contentStackHost {{
             background-color: {Colors.SURFACE};
+        }}
+
+        QScrollArea#contentScrollArea {{
+            border: none;
+            background-color: transparent;
         }}
         """
 

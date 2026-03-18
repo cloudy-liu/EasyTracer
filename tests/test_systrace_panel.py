@@ -35,11 +35,12 @@ def test_systrace_panel_uses_dropdown_buffer_with_custom_value(monkeypatch):
     panel = _build_panel(monkeypatch)
 
     assert panel.buffer_combo.currentText() == "10240 KB"
-    assert panel.custom_buffer.isVisible() is False
+    assert panel.buffer_detail_row.isVisible() is False
     assert panel.custom_buffer.isEnabled() is False
 
     panel.buffer_combo.setCurrentText("Custom")
 
+    assert panel.buffer_detail_row.isVisible() is True
     assert panel.custom_buffer.isVisible() is True
     assert panel.custom_buffer.isEnabled() is True
 
@@ -60,7 +61,7 @@ def test_systrace_panel_start_capture_uses_selected_buffer_size(monkeypatch):
     assert captured["request"].buffer_size_kb == 16384
 
 
-def test_systrace_panel_target_controls_stay_compact_and_expand_custom_input(monkeypatch):
+def test_systrace_panel_custom_target_uses_detail_row_instead_of_inline_expansion(monkeypatch):
     panel = _build_panel(monkeypatch)
 
     assert (
@@ -72,10 +73,13 @@ def test_systrace_panel_target_controls_stay_compact_and_expand_custom_input(mon
         panel.target_combo.sizePolicy().horizontalPolicy()
         == QtWidgets.QSizePolicy.Policy.Maximum
     )
-    assert (
-        panel.custom_target.sizePolicy().horizontalPolicy()
-        == QtWidgets.QSizePolicy.Policy.Expanding
-    )
+    assert panel.target_detail_row.isVisible() is False
+    assert panel.custom_target.parentWidget() is panel.target_detail_row
+
+    panel.target_combo.setCurrentText("Custom Package")
+
+    assert panel.target_detail_row.isVisible() is True
+    assert panel.custom_target.isVisible() is True
 
 
 def test_systrace_panel_output_path_keeps_expanded_width(monkeypatch):

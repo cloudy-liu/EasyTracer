@@ -23,6 +23,7 @@ class PerfettoRequest:
     duration_seconds: int = 10
     buffer_size_kb: int = 32768
     categories: Optional[list[str]] = None
+    atrace_apps: Optional[list[str]] = None
     output_dir: Optional[str] = None
     preset: Optional[str] = None
     config: Optional[PerfettoConfig] = None

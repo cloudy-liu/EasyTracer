@@ -5,7 +5,7 @@ Modal dialog wrapping CategorySelector for atrace category selection.
 
 Components:
     CategoryDialog        -- Full category picker with OK/Cancel
-    CategorySummaryWidget -- Inline chip display + "Select..." trigger
+    CategorySummaryWidget -- Compact chip summary + "Edit" trigger
 """
 
 from typing import Optional
@@ -188,43 +188,64 @@ class CategorySummaryWidget(QtWidgets.QWidget):
     """Inline chip display showing selected categories.
 
     Layout:
-    +-- Categories: Standard (11 of 45)        [Select...] --+
-    | [am] [binder_driver] [binder_lock] [dalvik] [freq]      |
-    | [gfx] [idle] [input] [sched] [view] [wm]                |
-    +----------------------------------------------------------+
+    +-- Atrace   [Standard | 11/45] [Edit] ---------------------+
+    | [am] [binder_driver] [binder_lock] [dalvik] [freq] [gfx] |
+    +-----------------------------------------------------------+
     """
 
     select_requested = QtCore.Signal()
 
-    def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
+    def __init__(
+        self,
+        parent: Optional[QtWidgets.QWidget] = None,
+        *,
+        title: str = "Atrace",
+    ):
         super().__init__(parent)
 
         outer = QtWidgets.QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(Spacing.XS)
+        outer.setSpacing(Spacing.SM)
 
-        # Header: label + button
+        # Header: title + status badge + action
         header = QtWidgets.QHBoxLayout()
         header.setSpacing(Spacing.SM)
 
-        header.addWidget(QtWidgets.QLabel("Categories:"))
-
-        self._label = QtWidgets.QLabel("Standard (11 of 45)")
-        self._label.setStyleSheet(
-            f"color: {Colors.NEUTRAL_700}; font-weight: 600;"
+        self._title = QtWidgets.QLabel(title)
+        self._title.setVisible(bool(title))
+        self._title.setStyleSheet(
+            f"color: {Colors.NEUTRAL_700}; font-size: 12px; font-weight: 600;"
         )
-        header.addWidget(self._label)
+        header.addWidget(self._title)
 
-        header.addStretch()
+        self._label = QtWidgets.QLabel("Standard | 11/45")
+        self._label.setStyleSheet(
+            f"""
+            color: {Colors.PRIMARY_DARK};
+            background-color: {Colors.PRIMARY_LIGHT};
+            border-radius: 10px;
+            padding: 2px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            """
+        )
+        header.addWidget(self._label, 0, QtCore.Qt.AlignmentFlag.AlignLeft)
 
-        self._btn = QtWidgets.QPushButton("Select...")
-        self._btn.setMaximumWidth(80)
+        self._btn = QtWidgets.QPushButton("Edit")
+        self._btn.setObjectName("categorySummaryEditButton")
+        self._btn.setCursor(QtCore.Qt.CursorShape.PointingHandCursor)
+        self._btn.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Maximum,
+            QtWidgets.QSizePolicy.Policy.Fixed,
+        )
+        self._btn.setStyleSheet("padding: 2px 10px; min-height: 24px;")
         self._btn.clicked.connect(self.select_requested.emit)
         header.addWidget(self._btn)
+        header.addStretch()
 
         outer.addLayout(header)
 
-        # Chip flow area
+        # Chip summary area
         self._chip_container = QtWidgets.QWidget()
         self._chip_layout = _FlowLayout(
             self._chip_container, h_spacing=4, v_spacing=4,
@@ -239,18 +260,22 @@ class CategorySummaryWidget(QtWidgets.QWidget):
         preset_name: str = "",
     ) -> None:
         tag = preset_name if preset_name else "Custom"
-        self._label.setText(f"{tag} ({len(selected)} of {total})")
+        self._label.setText(f"{tag} | {len(selected)}/{total}")
         self._rebuild_chips(selected)
 
     def _rebuild_chips(self, categories: list[str]) -> None:
         # Clear existing chips
         while self._chip_layout.count():
             item = self._chip_layout.takeAt(0)
-            if item and item.widget():
-                item.widget().deleteLater()
+            if item:
+                widget = item.widget()
+                if widget is not None:
+                    widget.setParent(None)
+                    widget.deleteLater()
 
         for cat in sorted(categories):
             chip = QtWidgets.QLabel(cat)
+            chip.setObjectName("summaryChip")
             chip.setStyleSheet(_CHIP_QSS)
             chip.setToolTip(CATEGORY_DESCRIPTIONS.get(cat, ""))
             chip.setSizePolicy(

@@ -5,7 +5,7 @@ Configuration and control panel for Perfetto trace recording.
 
 Features:
 - Preset-based configuration (Standard, Graphics, Memory, Full, Custom)
-- Data source selection tabs (Perfetto-specific)
+- Preset-first data source layout with custom editor
 - Atrace category selection via modal dialog (unified registry)
 - Auxiliary output options
 """
@@ -26,9 +26,14 @@ from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
 from easy_tracer.ui.components.cards import ResultCard
 from easy_tracer.ui.dialogs.category_dialog import CategoryDialog, CategorySummaryWidget
+from easy_tracer.ui.panels.app_targets import (
+    APP_TARGET_OPTIONS,
+    CUSTOM_PACKAGE_TARGET,
+    resolve_atrace_apps,
+)
 from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.dialogs.base_settings_dialog import BaseSettingsDialog
-from easy_tracer.ui.theme import Spacing
+from easy_tracer.ui.theme import Colors, Spacing
 
 
 # =============================================================================
@@ -43,6 +48,42 @@ _DS_ENABLED: dict[str, set[str]] = {
         "ftrace", "process_stats", "sys_stats", "system_info",
         "surfaceflinger", "gpu_memory", "packages_list", "android_log",
     },
+}
+
+_DATA_SOURCE_SECTIONS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
+    (
+        "Core",
+        (
+            ("ftrace", "Ftrace", "CPU scheduling and low-level system events."),
+            ("process_stats", "Process Stats", "Per-process CPU and memory snapshots."),
+        ),
+    ),
+    (
+        "Graphics",
+        (
+            ("surfaceflinger", "SurfaceFlinger", "Android frame timeline and compositor events."),
+            ("gpu_memory", "GPU Memory", "GPU memory usage counters."),
+        ),
+    ),
+    (
+        "Memory",
+        (
+            ("sys_stats", "Sys Stats", "System-wide memory counters."),
+        ),
+    ),
+    (
+        "System",
+        (
+            ("system_info", "System Info", "Kernel, CPU, and device metadata."),
+            ("packages_list", "Packages List", "Installed packages metadata."),
+            ("android_log", "Android Log", "Logcat stream inside the trace."),
+        ),
+    ),
+)
+_DATA_SOURCE_LABELS = {
+    key: label
+    for _section, items in _DATA_SOURCE_SECTIONS
+    for key, label, _tooltip in items
 }
 
 class _UpdateEmitter(QtCore.QObject):
@@ -81,12 +122,14 @@ class PerfettoPanel(BasePanel):
     | PRESETS: (Standard) (Graphics) (Memory) (Full) (Custom)       |
     +---------------------------------------------------------------+
     +-- DATA SOURCES -----------------------------------------------+
-    | [CPU/Sched] [GPU/Graphics] [Memory] [Power] [Misc]            |
+    | Included: Ftrace, Process Stats, SurfaceFlinger               |
+    | [Core] [Graphics] [Memory] [System] editor only in Custom     |
     +---------------------------------------------------------------+
     +-- ATRACE -----------------------------------------------------+
-    | Target Apps: [*                                            ]   |
-    | Categories: Standard (11 of 45)                [Select...]    |
-    | [am] [binder_driver] [binder_lock] [dalvik] [freq] [gfx] ... |
+    | Categories [Standard | 11/43] [Edit]                         |
+    | [am] [binder_driver] [binder_lock] [dalvik] [freq] [gfx]     |
+    | Apps: [All Apps (*) v]                                       |
+    | Package: [com.example.app_______________________________]     |
     +---------------------------------------------------------------+
     """
 
@@ -197,40 +240,90 @@ class PerfettoPanel(BasePanel):
         # DATA SOURCES GROUP
         # =====================================================================
         sources_group = QtWidgets.QGroupBox("Data Sources")
+        self.sources_group = sources_group
         sources_layout = QtWidgets.QVBoxLayout(sources_group)
         sources_layout.setContentsMargins(Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD)
+        sources_layout.setSpacing(Spacing.MD)
 
-        self.data_tabs = QtWidgets.QTabWidget()
-        self.data_tabs.addTab(self._build_core_tab(), "CPU/Sched")
-        self.data_tabs.addTab(self._build_gpu_tab(), "GPU/Graphics")
-        self.data_tabs.addTab(self._build_memory_tab(), "Memory")
-        self.data_tabs.addTab(self._build_power_tab(), "Power")
-        self.data_tabs.addTab(self._build_misc_tab(), "Misc")
-        sources_layout.addWidget(self.data_tabs)
+        self.source_summary_widget = QtWidgets.QWidget()
+        source_summary_layout = QtWidgets.QVBoxLayout(self.source_summary_widget)
+        source_summary_layout.setContentsMargins(0, 0, 0, 0)
+        source_summary_layout.setSpacing(Spacing.XS)
+
+        source_summary_label = QtWidgets.QLabel("Included")
+        source_summary_label.setStyleSheet(
+            f"color: {Colors.NEUTRAL_700}; font-size: 12px; font-weight: 600;"
+        )
+        source_summary_layout.addWidget(source_summary_label)
+
+        self.source_summary_value = QtWidgets.QLabel()
+        self.source_summary_value.setWordWrap(True)
+        self.source_summary_value.setStyleSheet(
+            f"color: {Colors.NEUTRAL_700}; line-height: 1.4;"
+        )
+        source_summary_layout.addWidget(self.source_summary_value)
+        sources_layout.addWidget(self.source_summary_widget)
+
+        self.sources_editor_widget = QtWidgets.QWidget()
+        sources_editor_layout = QtWidgets.QGridLayout(self.sources_editor_widget)
+        sources_editor_layout.setContentsMargins(0, 0, 0, 0)
+        sources_editor_layout.setHorizontalSpacing(Spacing.LG)
+        sources_editor_layout.setVerticalSpacing(Spacing.MD)
+
+        self._ds_map: dict[str, QtWidgets.QCheckBox] = {}
+        for index, (section_title, items) in enumerate(_DATA_SOURCE_SECTIONS):
+            section = self._build_source_section(section_title, items)
+            sources_editor_layout.addWidget(section, index // 2, index % 2)
+
+        sources_layout.addWidget(self.sources_editor_widget)
 
         layout.addWidget(sources_group)
 
         # =====================================================================
-        # ATRACE GROUP (Target Apps + Category Summary)
+        # ATRACE GROUP (category summary + app scope)
         # =====================================================================
         atrace_group = QtWidgets.QGroupBox("Atrace")
+        self.atrace_group = atrace_group
         atrace_layout = QtWidgets.QVBoxLayout(atrace_group)
         atrace_layout.setContentsMargins(Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD)
-        atrace_layout.setSpacing(Spacing.SM)
+        atrace_layout.setSpacing(Spacing.MD)
 
-        # Target apps row
-        app_row = QtWidgets.QHBoxLayout()
-        app_row.addWidget(QtWidgets.QLabel("Target Apps:"))
-        self.atrace_app = QtWidgets.QLineEdit()
-        self.atrace_app.setPlaceholderText("* (all apps)")
-        self.atrace_app.setText("*")
-        app_row.addWidget(self.atrace_app, 1)
-        atrace_layout.addLayout(app_row)
-
-        # Category summary with chip display
-        self._category_summary = CategorySummaryWidget()
+        self._category_summary = CategorySummaryWidget(title="Categories")
         self._category_summary.select_requested.connect(self._on_select_atrace)
         atrace_layout.addWidget(self._category_summary)
+
+        app_scope_row = QtWidgets.QHBoxLayout()
+        app_scope_row.setSpacing(Spacing.SM)
+        app_scope_row.addWidget(QtWidgets.QLabel("Apps:"))
+
+        self.atrace_target_combo = QtWidgets.QComboBox()
+        self._configure_compact_combo(self.atrace_target_combo, 12)
+        self.atrace_target_combo.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Maximum,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
+        self.atrace_target_combo.addItems(APP_TARGET_OPTIONS)
+        self.atrace_target_combo.currentTextChanged.connect(self._toggle_custom_target)
+        app_scope_row.addWidget(self.atrace_target_combo)
+        app_scope_row.addStretch(1)
+        atrace_layout.addLayout(app_scope_row)
+
+        self.atrace_custom_target = QtWidgets.QLineEdit()
+        self.atrace_custom_target.setPlaceholderText("com.example.app")
+        self.atrace_custom_target.setEnabled(False)
+        self.atrace_custom_target.setVisible(False)
+        self.atrace_custom_target.setMinimumWidth(280)
+        self.atrace_custom_target.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
+
+        self.atrace_custom_target_row = self._build_detail_row(
+            "Package:",
+            self.atrace_custom_target,
+        )
+        self.atrace_custom_target_row.setVisible(False)
+        atrace_layout.addWidget(self.atrace_custom_target_row)
 
         layout.addWidget(atrace_group)
 
@@ -241,24 +334,6 @@ class PerfettoPanel(BasePanel):
         self.result_card.open_output_clicked.connect(self._on_open_output)
         self.result_card.view_trace_clicked.connect(self._on_view_in_perfetto)
         layout.addWidget(self.result_card)
-
-        # Build DS checkbox lookup after all tabs are created
-        self._ds_map: dict[str, QtWidgets.QCheckBox] = {
-            "ftrace": self.ds_ftrace,
-            "process_stats": self.ds_process_stats,
-            "sys_stats": self.ds_sys_stats,
-            "system_info": self.ds_system_info,
-            "surfaceflinger": self.ds_surfaceflinger,
-            "gpu_memory": self.ds_gpu_memory,
-            "gpu_work": self.ds_gpu_work,
-            "heapprofd": self.ds_heapprofd,
-            "java_hprof": self.ds_java_hprof,
-            "power": self.ds_power,
-            "perf": self.ds_perf,
-            "packages_list": self.ds_packages_list,
-            "android_log": self.ds_android_log,
-            "network": self.ds_network,
-        }
 
         # Connect preset buttons AFTER all UI is created
         for btn in self.preset_group.buttons():
@@ -271,79 +346,56 @@ class PerfettoPanel(BasePanel):
         self._apply_preset("standard")
 
     # =========================================================================
-    # DATA SOURCE TAB BUILDERS
+    # UI HELPERS
     # =========================================================================
 
-    def _build_core_tab(self) -> QtWidgets.QWidget:
+    def _configure_compact_combo(
+        self,
+        combo: QtWidgets.QComboBox,
+        minimum_contents_length: int,
+    ) -> None:
+        combo.setSizeAdjustPolicy(
+            QtWidgets.QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        combo.setMinimumContentsLength(minimum_contents_length)
+
+    def _build_detail_row(
+        self,
+        label_text: str,
+        field: QtWidgets.QWidget,
+    ) -> QtWidgets.QWidget:
+        row = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(Spacing.SM)
+        layout.addWidget(QtWidgets.QLabel(label_text))
+        layout.addWidget(field, 1)
+        return row
+
+    def _build_source_section(
+        self,
+        title: str,
+        items: tuple[tuple[str, str, str], ...],
+    ) -> QtWidgets.QWidget:
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
-        layout.setSpacing(Spacing.SM)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(Spacing.XS)
 
-        self.ds_ftrace = QtWidgets.QCheckBox("linux.ftrace (CPU scheduling, system events)")
-        self.ds_process_stats = QtWidgets.QCheckBox("linux.process_stats (Process memory, CPU)")
-        self.ds_sys_stats = QtWidgets.QCheckBox("linux.sys_stats (System-wide memory info)")
-        self.ds_system_info = QtWidgets.QCheckBox("linux.system_info (Kernel version, CPU info)")
+        header = QtWidgets.QLabel(title)
+        header.setStyleSheet(
+            f"color: {Colors.NEUTRAL_700}; font-size: 12px; font-weight: 600;"
+        )
+        layout.addWidget(header)
 
-        layout.addWidget(self.ds_ftrace)
-        layout.addWidget(self.ds_process_stats)
-        layout.addWidget(self.ds_sys_stats)
-        layout.addWidget(self.ds_system_info)
-        layout.addStretch(1)
-        return widget
+        for key, label, tooltip in items:
+            checkbox = QtWidgets.QCheckBox(label)
+            checkbox.setToolTip(tooltip)
+            checkbox.toggled.connect(self._update_source_summary)
+            setattr(self, f"ds_{key}", checkbox)
+            self._ds_map[key] = checkbox
+            layout.addWidget(checkbox)
 
-    def _build_gpu_tab(self) -> QtWidgets.QWidget:
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
-        layout.setSpacing(Spacing.SM)
-
-        self.ds_surfaceflinger = QtWidgets.QCheckBox("android.surfaceflinger.frametimeline (Frame timing)")
-        self.ds_gpu_memory = QtWidgets.QCheckBox("android.gpu.memory (GPU memory usage)")
-        self.ds_gpu_work = QtWidgets.QCheckBox("android.gpu.work (GPU workload)")
-
-        layout.addWidget(self.ds_surfaceflinger)
-        layout.addWidget(self.ds_gpu_memory)
-        layout.addWidget(self.ds_gpu_work)
-        layout.addStretch(1)
-        return widget
-
-    def _build_memory_tab(self) -> QtWidgets.QWidget:
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
-        layout.setSpacing(Spacing.SM)
-
-        self.ds_heapprofd = QtWidgets.QCheckBox("android.heapprofd (Native heap profiling)")
-        self.ds_java_hprof = QtWidgets.QCheckBox("android.java_hprof (Java heap dump)")
-
-        layout.addWidget(self.ds_heapprofd)
-        layout.addWidget(self.ds_java_hprof)
-        layout.addStretch(1)
-        return widget
-
-    def _build_power_tab(self) -> QtWidgets.QWidget:
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
-        layout.setSpacing(Spacing.SM)
-
-        self.ds_power = QtWidgets.QCheckBox("android.power (Power rail monitoring)")
-        self.ds_perf = QtWidgets.QCheckBox("linux.perf (CPU performance counters)")
-
-        layout.addWidget(self.ds_power)
-        layout.addWidget(self.ds_perf)
-        layout.addStretch(1)
-        return widget
-
-    def _build_misc_tab(self) -> QtWidgets.QWidget:
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
-        layout.setSpacing(Spacing.SM)
-
-        self.ds_packages_list = QtWidgets.QCheckBox("android.packages_list (Installed packages)")
-        self.ds_android_log = QtWidgets.QCheckBox("android.log (Logcat integration)")
-        self.ds_network = QtWidgets.QCheckBox("android.network_packets (Network traffic)")
-
-        layout.addWidget(self.ds_packages_list)
-        layout.addWidget(self.ds_android_log)
-        layout.addWidget(self.ds_network)
         layout.addStretch(1)
         return widget
 
@@ -359,6 +411,7 @@ class PerfettoPanel(BasePanel):
         """Apply preset: data sources (local) + atrace (from registry)."""
         self._current_preset = preset_id
         if preset_id == "custom":
+            self._sync_sources_visibility()
             return
 
         # Data sources (Perfetto-specific concern)
@@ -371,6 +424,7 @@ class PerfettoPanel(BasePanel):
             ATRACE_PRESETS.get(preset_id, ATRACE_PRESETS["standard"])
         )
         self._update_category_summary()
+        self._sync_sources_visibility()
 
     # =========================================================================
     # ATRACE CATEGORY SELECTION
@@ -394,6 +448,35 @@ class PerfettoPanel(BasePanel):
 
     def _selected_atrace_categories(self) -> list[str]:
         return list(self._atrace_categories)
+
+    def _toggle_custom_target(self, text: str) -> None:
+        is_custom = text == CUSTOM_PACKAGE_TARGET
+        self.atrace_custom_target.setEnabled(is_custom)
+        self.atrace_custom_target.setVisible(is_custom)
+        self.atrace_custom_target_row.setVisible(is_custom)
+        self.updateGeometry()
+
+    def _sync_sources_visibility(self) -> None:
+        is_custom = self._current_preset == "custom"
+        self.source_summary_widget.setVisible(not is_custom)
+        self.sources_editor_widget.setVisible(is_custom)
+        self._update_source_summary()
+
+    def _update_source_summary(self) -> None:
+        enabled = [
+            _DATA_SOURCE_LABELS[key]
+            for key, cb in self._ds_map.items()
+            if cb.isChecked()
+        ]
+        self.source_summary_value.setText(
+            ", ".join(enabled) if enabled else "No data sources selected."
+        )
+
+    def _selected_atrace_apps(self) -> list[str]:
+        return resolve_atrace_apps(
+            self.atrace_target_combo.currentText(),
+            self.atrace_custom_target.text(),
+        )
 
     # =========================================================================
     # AUXILIARY / NAVIGATION
@@ -457,6 +540,7 @@ class PerfettoPanel(BasePanel):
         duration_seconds: int,
         buffer_size_kb: int,
         categories: list[str],
+        atrace_apps: list[str],
     ) -> PerfettoConfig:
         """Build the explicit config used for the custom preset."""
         # Custom mode bypasses registry presets and mirrors the live checkbox
@@ -467,6 +551,7 @@ class PerfettoPanel(BasePanel):
             write_period_ms=self.settings_dialog.write_period.value(),
             flush_period_ms=self.settings_dialog.flush_period.value(),
             atrace_categories=categories,
+            atrace_apps=atrace_apps,
             enable_ftrace=self.ds_ftrace.isChecked(),
             enable_process_stats=self.ds_process_stats.isChecked(),
             enable_sys_stats=self.ds_sys_stats.isChecked(),
@@ -481,6 +566,7 @@ class PerfettoPanel(BasePanel):
         duration_seconds = self._duration_seconds()
         buffer_size_kb = self._buffer_kb()
         categories = self._selected_atrace_categories()
+        atrace_apps = self._selected_atrace_apps()
         preset = None if self._current_preset == "custom" else self._current_preset
         config = None
         if preset is None:
@@ -488,6 +574,7 @@ class PerfettoPanel(BasePanel):
                 duration_seconds,
                 buffer_size_kb,
                 categories,
+                atrace_apps,
             )
 
         return PerfettoRequest(
@@ -495,6 +582,7 @@ class PerfettoPanel(BasePanel):
             duration_seconds=duration_seconds,
             buffer_size_kb=buffer_size_kb,
             categories=categories,
+            atrace_apps=atrace_apps,
             output_dir=self.output_path.output_dir(),
             preset=preset,
             config=config,

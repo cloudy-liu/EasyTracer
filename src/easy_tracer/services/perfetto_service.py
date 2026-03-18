@@ -1,5 +1,6 @@
 import os
 import time
+from dataclasses import replace
 from typing import List, Optional
 from easy_tracer.framework import perfetto_adapter
 from easy_tracer.framework.perfetto_config_builder import (
@@ -73,10 +74,15 @@ class PerfettoService:
             config_text = request.config_text
         elif request.config:
             # Use provided config
-            config_text = build_config(request.config)
+            config = request.config
+            if request.atrace_apps:
+                config = replace(config, atrace_apps=list(request.atrace_apps))
+            config_text = build_config(config)
         elif request.preset:
             # Use preset
             cfg = config_from_preset(request.preset, duration_ms=request.duration_seconds * 1000)
+            if request.atrace_apps:
+                cfg.atrace_apps = list(request.atrace_apps)
             config_text = build_config(cfg)
         # else: use simple command-line method (categories + buffer)
 

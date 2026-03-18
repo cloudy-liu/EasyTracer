@@ -130,8 +130,10 @@ def test_main_window_places_content_and_log_panel_in_vertical_splitter(tmp_path)
         splitter = window.main_splitter
         assert splitter.orientation() == QtCore.Qt.Orientation.Vertical
         assert splitter.parentWidget().objectName() == "mainColumn"
-        assert splitter.widget(0) is window.content_stack_host
+        assert splitter.widget(0) is window.content_scroll
         assert splitter.widget(1) is window.log_panel
+        assert window.content_scroll.widget() is window.content_stack_host
+        assert window.content_scroll.widgetResizable() is True
     finally:
         window.close()
 
@@ -145,6 +147,23 @@ def test_log_panel_uses_compact_minimum_heights(tmp_path):
 
         log_panel.toggle_collapsed()
         assert log_panel.minimumHeight() == 32
+    finally:
+        window.close()
+
+
+def test_log_splitter_can_grow_log_panel_after_manual_resize(tmp_path):
+    window = _build_window(tmp_path)
+    app = QtWidgets.QApplication.instance()
+    assert app is not None
+
+    try:
+        window.resize(1200, 760)
+        app.processEvents()
+
+        window.main_splitter.setSizes([180, 260])
+        app.processEvents()
+
+        assert window.main_splitter.sizes()[1] >= 180
     finally:
         window.close()
 
@@ -212,3 +231,36 @@ def test_global_stylesheet_contains_combo_arrow_and_checkbox_states():
     assert "QCheckBox::indicator:checked" in stylesheet
     assert "background-color: #2196f3" in stylesheet
     assert "check-white.svg" in stylesheet
+
+
+def test_perfetto_panel_uses_dropdown_app_targets_and_progressive_sources(tmp_path):
+    window = _build_window(tmp_path)
+
+    try:
+        window._activate_stack_index(2)
+        panel = window.perfetto_panel
+        assert panel is not None
+        assert panel.sources_group.title() == "Data Sources"
+        assert panel.atrace_group.title() == "Atrace"
+        assert panel.atrace_target_combo.currentText() == "All Apps (*)"
+        assert panel.atrace_custom_target_row.isHidden() is True
+        assert panel.source_summary_widget.isHidden() is False
+        assert panel.sources_editor_widget.isHidden() is True
+    finally:
+        window.close()
+
+
+def test_perfetto_custom_preset_reveals_source_editor(tmp_path):
+    window = _build_window(tmp_path)
+
+    try:
+        window._activate_stack_index(2)
+        panel = window.perfetto_panel
+        assert panel is not None
+
+        panel._apply_preset("custom")
+
+        assert panel.source_summary_widget.isHidden() is True
+        assert panel.sources_editor_widget.isHidden() is False
+    finally:
+        window.close()

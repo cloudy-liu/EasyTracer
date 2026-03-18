@@ -24,6 +24,11 @@ from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
 from easy_tracer.ui.components.cards import DeprecationBanner
 from easy_tracer.ui.dialogs.category_dialog import CategoryDialog, CategorySummaryWidget
+from easy_tracer.ui.panels.app_targets import (
+    APP_TARGET_OPTIONS,
+    CUSTOM_PACKAGE_TARGET,
+    resolve_target_package,
+)
 from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.theme import Spacing
 
@@ -33,12 +38,6 @@ from easy_tracer.ui.theme import Spacing
 # =============================================================================
 
 BUFFER_PRESET_VALUES_KB = [4096, 8192, 10240, 16384, 32768, 65536]
-# Non-custom target choices map to stable system package names.
-_NAMED_TARGET_APPS = {
-    "Launcher": "com.android.launcher3",
-    "SystemUI": "com.android.systemui",
-    "Settings": "com.android.settings",
-}
 
 
 # =============================================================================
@@ -59,8 +58,11 @@ class SystracePanel(BasePanel):
     Layout:
     +-- CAPTURE CONFIGURATION ------------------------------------------+
     | Duration: [5s v]  Target: [Top App v]  Buffer: [10240 KB]         |
+    | Package: [com.example.app____________________]                    |
+    | Buffer KB: [65536____________________________]                    |
     | Output: [...output...]  [dir]   [ ] Enhanced thread names         |
-    | Categories: Standard (11 of 45)  [Select...]                      |
+    | Atrace   [Standard | 11/45] [Edit]                                |
+    | [am] [binder_driver] [binder_lock] [dalvik] [freq] [gfx]          |
     +-------------------------------------------------------------------+
     """
 
@@ -151,6 +153,10 @@ class SystracePanel(BasePanel):
         # Target
         self._controls_row.addWidget(QtWidgets.QLabel("Target:"))
         self.target_widget = QtWidgets.QWidget()
+        self.target_widget.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Maximum,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
         target_layout = QtWidgets.QHBoxLayout(self.target_widget)
         target_layout.setContentsMargins(0, 0, 0, 0)
         target_layout.setSpacing(Spacing.SM)
@@ -161,28 +167,9 @@ class SystracePanel(BasePanel):
             QtWidgets.QSizePolicy.Policy.Maximum,
             QtWidgets.QSizePolicy.Policy.Preferred,
         )
-        self.target_combo.addItems([
-            "All Apps (*)",
-            "Top App (Foreground)",
-            "Launcher",
-            "SystemUI",
-            "Settings",
-            "Custom Package",
-        ])
+        self.target_combo.addItems(APP_TARGET_OPTIONS)
         self.target_combo.currentTextChanged.connect(self._toggle_custom_target)
         target_layout.addWidget(self.target_combo)
-
-        self.custom_target = QtWidgets.QLineEdit()
-        self.custom_target.setPlaceholderText("com.example.app")
-        self.custom_target.setEnabled(False)
-        self.custom_target.setVisible(False)
-        self.custom_target.setMinimumWidth(180)
-        self.custom_target.setSizePolicy(
-            QtWidgets.QSizePolicy.Policy.Expanding,
-            QtWidgets.QSizePolicy.Policy.Preferred,
-        )
-        target_layout.addWidget(self.custom_target)
-        target_layout.setStretch(1, 1)
 
         self._controls_row.addWidget(self.target_widget)
 
@@ -206,6 +193,20 @@ class SystracePanel(BasePanel):
         self.buffer_combo.currentTextChanged.connect(self._toggle_custom_buffer)
         buffer_layout.addWidget(self.buffer_combo)
 
+        self._controls_row.addWidget(buffer_widget)
+        self._controls_row.addStretch(1)
+        config_layout.addLayout(self._controls_row)
+
+        self.custom_target = QtWidgets.QLineEdit()
+        self.custom_target.setPlaceholderText("com.example.app")
+        self.custom_target.setEnabled(False)
+        self.custom_target.setVisible(False)
+        self.custom_target.setMinimumWidth(240)
+        self.custom_target.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
+
         self.custom_buffer = QtWidgets.QSpinBox()
         self.custom_buffer.setRange(1024, 1024 * 1024)
         self.custom_buffer.setValue(10240)
@@ -217,11 +218,20 @@ class SystracePanel(BasePanel):
             QtWidgets.QSizePolicy.Policy.Maximum,
             QtWidgets.QSizePolicy.Policy.Preferred,
         )
-        buffer_layout.addWidget(self.custom_buffer)
 
-        self._controls_row.addWidget(buffer_widget)
-        self._controls_row.addStretch(1)
-        config_layout.addLayout(self._controls_row)
+        self._detail_rows = QtWidgets.QWidget()
+        detail_rows_layout = QtWidgets.QVBoxLayout(self._detail_rows)
+        detail_rows_layout.setContentsMargins(0, 0, 0, 0)
+        detail_rows_layout.setSpacing(Spacing.SM)
+
+        self.target_detail_row = self._build_detail_row("Package:", self.custom_target)
+        self.buffer_detail_row = self._build_detail_row("Buffer KB:", self.custom_buffer)
+        self.target_detail_row.setVisible(False)
+        self.buffer_detail_row.setVisible(False)
+        detail_rows_layout.addWidget(self.target_detail_row)
+        detail_rows_layout.addWidget(self.buffer_detail_row)
+        self._detail_rows.setVisible(False)
+        config_layout.addWidget(self._detail_rows)
 
         # Row 1: Output path with Open button
         output_row = QtWidgets.QHBoxLayout()
@@ -271,7 +281,7 @@ class SystracePanel(BasePanel):
 
         layout.addWidget(config_group)
         layout.addStretch(1)
-        self._sync_target_layout(is_custom=False)
+        self._sync_detail_rows()
 
     # =========================================================================
     # EVENT HANDLERS
@@ -290,31 +300,47 @@ class SystracePanel(BasePanel):
     def _format_buffer_label(self, size_kb: int) -> str:
         return f"{size_kb} KB"
 
-    def _set_custom_widget_state(
+    def _build_detail_row(
         self,
-        widget: QtWidgets.QWidget,
-        is_custom: bool,
+        label_text: str,
+        field: QtWidgets.QWidget,
+    ) -> QtWidgets.QWidget:
+        row = QtWidgets.QWidget()
+        layout = QtWidgets.QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(Spacing.SM)
+        layout.addWidget(QtWidgets.QLabel(label_text))
+        layout.addWidget(field, 1)
+        return row
+
+    def _set_detail_row_state(
+        self,
+        row: QtWidgets.QWidget,
+        field: QtWidgets.QWidget,
+        is_visible: bool,
     ) -> None:
-        """Show and enable a custom-value widget together."""
-        widget.setEnabled(is_custom)
-        widget.setVisible(is_custom)
+        field.setEnabled(is_visible)
+        field.setVisible(is_visible)
+        row.setVisible(is_visible)
+        self._sync_detail_rows()
 
     def _toggle_custom_duration(self, text: str) -> None:
         is_custom = text == "Custom"
-        self._set_custom_widget_state(self.custom_duration, is_custom)
+        self.custom_duration.setEnabled(is_custom)
+        self.custom_duration.setVisible(is_custom)
 
     def _toggle_custom_target(self, text: str) -> None:
-        is_custom = text == "Custom Package"
-        self._set_custom_widget_state(self.custom_target, is_custom)
-        self._sync_target_layout(is_custom)
+        is_custom = text == CUSTOM_PACKAGE_TARGET
+        self._set_detail_row_state(self.target_detail_row, self.custom_target, is_custom)
 
     def _toggle_custom_buffer(self, text: str) -> None:
         is_custom = text == "Custom"
-        self._set_custom_widget_state(self.custom_buffer, is_custom)
+        self._set_detail_row_state(self.buffer_detail_row, self.custom_buffer, is_custom)
 
-    def _sync_target_layout(self, is_custom: bool) -> None:
-        self._controls_row.setStretchFactor(self.target_widget, 1 if is_custom else 0)
-        self.target_widget.updateGeometry()
+    def _sync_detail_rows(self) -> None:
+        self._detail_rows.setVisible(
+            not self.target_detail_row.isHidden() or not self.buffer_detail_row.isHidden()
+        )
         self.updateGeometry()
 
     def _on_open_output(self) -> None:
@@ -432,12 +458,10 @@ class SystracePanel(BasePanel):
         return int(text.replace(" KB", ""))
 
     def _get_target_app(self) -> Optional[str]:
-        text = self.target_combo.currentText()
-        if text == "Custom Package":
-            return self.custom_target.text().strip() or None
-        # Named targets stay in one mapping table so the dropdown text and
-        # request package resolution do not drift apart.
-        return _NAMED_TARGET_APPS.get(text)
+        return resolve_target_package(
+            self.target_combo.currentText(),
+            self.custom_target.text(),
+        )
 
     def start_capture(self) -> None:
         if not self.device_serial:

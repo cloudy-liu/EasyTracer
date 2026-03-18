@@ -141,20 +141,16 @@ def test_perfetto_panel_start_capture_builds_perfetto_request(monkeypatch):
     )
     panel.duration_combo = _text_value("10s")
     panel._atrace_categories = ["gfx", "sched"]
+    panel.atrace_target_combo = _text_value("Settings")
+    panel.atrace_custom_target = SimpleNamespace(text=lambda: "")
     panel.ds_ftrace = _checkbox(True)
     panel.ds_process_stats = _checkbox(True)
     panel.ds_sys_stats = _checkbox(True)
     panel.ds_system_info = _checkbox(False)
     panel.ds_surfaceflinger = _checkbox(True)
     panel.ds_gpu_memory = _checkbox(True)
-    panel.ds_gpu_work = _checkbox(True)
-    panel.ds_heapprofd = _checkbox(True)
-    panel.ds_java_hprof = _checkbox(False)
-    panel.ds_power = _checkbox(True)
-    panel.ds_perf = _checkbox(True)
     panel.ds_packages_list = _checkbox(True)
     panel.ds_android_log = _checkbox(True)
-    panel.ds_network = _checkbox(True)
 
     monkeypatch.setattr(perfetto_panel_module, "run_in_thread", lambda fn, *args: fn(*args))
 
@@ -170,6 +166,7 @@ def test_perfetto_panel_start_capture_builds_perfetto_request(monkeypatch):
     assert request.config.duration_ms == 10000
     assert request.config.buffer_size_kb == 64 * 1024
     assert request.config.atrace_categories == ["gfx", "sched"]
+    assert request.config.atrace_apps == ["com.android.settings"]
     assert request.config.enable_ftrace is True
     assert request.config.enable_surfaceflinger is True
     assert request.config.enable_gpu_memory is True
