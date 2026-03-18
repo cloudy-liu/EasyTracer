@@ -4,8 +4,7 @@ Perfetto Panel
 Configuration and control panel for Perfetto trace recording.
 
 Features:
-- Preset-based configuration (Standard, Graphics, Memory, Full, Custom)
-- Preset-first data source layout with custom editor
+- Direct data-source configuration with sensible defaults
 - Atrace category selection via modal dialog (unified registry)
 - Auxiliary output options
 """
@@ -37,18 +36,25 @@ from easy_tracer.ui.theme import Colors, Spacing
 
 
 # =============================================================================
-# PERFETTO DATA SOURCE PRESETS (Perfetto-specific, NOT atrace)
+# PERFETTO DATA SOURCE DEFAULTS (Perfetto-specific, NOT atrace)
 # =============================================================================
 
 _DS_ENABLED: dict[str, set[str]] = {
     "standard": {"ftrace", "process_stats"},
     "graphics": {"ftrace", "process_stats", "surfaceflinger", "gpu_memory"},
-    "memory":   {"ftrace", "process_stats", "sys_stats"},
-    "full":     {
-        "ftrace", "process_stats", "sys_stats", "system_info",
-        "surfaceflinger", "gpu_memory", "packages_list", "android_log",
+    "memory": {"ftrace", "process_stats", "sys_stats"},
+    "full": {
+        "ftrace",
+        "process_stats",
+        "sys_stats",
+        "system_info",
+        "surfaceflinger",
+        "gpu_memory",
+        "packages_list",
+        "android_log",
     },
 }
+_DEFAULT_SOURCE_PRESET = "standard"
 
 _DATA_SOURCE_SECTIONS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
     (
@@ -61,15 +67,17 @@ _DATA_SOURCE_SECTIONS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] 
     (
         "Graphics",
         (
-            ("surfaceflinger", "SurfaceFlinger", "Android frame timeline and compositor events."),
+            (
+                "surfaceflinger",
+                "SurfaceFlinger",
+                "Android frame timeline and compositor events.",
+            ),
             ("gpu_memory", "GPU Memory", "GPU memory usage counters."),
         ),
     ),
     (
         "Memory",
-        (
-            ("sys_stats", "Sys Stats", "System-wide memory counters."),
-        ),
+        (("sys_stats", "Sys Stats", "System-wide memory counters."),),
     ),
     (
         "System",
@@ -85,6 +93,7 @@ _DATA_SOURCE_LABELS = {
     for _section, items in _DATA_SOURCE_SECTIONS
     for key, label, _tooltip in items
 }
+
 
 class _UpdateEmitter(QtCore.QObject):
     updated = QtCore.Signal()
@@ -116,30 +125,32 @@ class PerfettoPanel(BasePanel):
     """Perfetto trace recording panel.
 
     Layout:
-    +-- CAPTURE SETTINGS -------------------------------------------+
+    +-- TRACE SETUP ------------------------------------------------+
     | Duration: [10s v]  Mode: (Normal) (Long)                      |
     | Output: [...output...]  [dir]  [Settings]                     |
-    | PRESETS: (Standard) (Graphics) (Memory) (Full) (Custom)       |
     +---------------------------------------------------------------+
     +-- DATA SOURCES -----------------------------------------------+
-    | Included: Ftrace, Process Stats, SurfaceFlinger               |
-    | [Core] [Graphics] [Memory] [System] editor only in Custom     |
+    | [x] Ftrace        [x] Process Stats      [ ] SurfaceFlinger   |
+    | [ ] GPU Memory    [ ] Sys Stats          [ ] System Info      |
     +---------------------------------------------------------------+
-    +-- ATRACE -----------------------------------------------------+
-    | Categories [Standard | 11/43] [Edit]                         |
-    | [am] [binder_driver] [binder_lock] [dalvik] [freq] [gfx]     |
-    | Apps: [All Apps (*) v]                                       |
-    | Package: [com.example.app_______________________________]     |
+    +-- ATRACE SCOPE -----------------------------------------------+
+    | Categories [Standard | 11/43] [Edit]                          |
+    | Apps [All Apps (*) v] [com.example.app___________________]    |
     +---------------------------------------------------------------+
     """
 
-    def __init__(self, presenter: PerfettoPresenter, device_serial: Optional[str], default_output_dir: str):
+    def __init__(
+        self,
+        presenter: PerfettoPresenter,
+        device_serial: Optional[str],
+        default_output_dir: str,
+    ):
         super().__init__()
         self.presenter = presenter
         self.device_serial = device_serial
         self.default_output_dir = default_output_dir
         self._auxiliary_options: dict[str, bool] = {}
-        self._current_preset: str = "standard"
+        self._current_preset: str | None = None
         self._atrace_categories: list[str] = list(ATRACE_PRESETS["standard"])
         self._update_emitter = _UpdateEmitter()
         self._update_emitter.updated.connect(self.update_view)
@@ -154,12 +165,14 @@ class PerfettoPanel(BasePanel):
         layout.setSpacing(Spacing.MD)
 
         # =====================================================================
-        # CAPTURE SETTINGS GROUP
+        # TRACE SETUP GROUP
         # =====================================================================
-        settings_group = QtWidgets.QGroupBox("Capture Settings")
+        settings_group = QtWidgets.QGroupBox("Trace Setup")
         settings_layout = QtWidgets.QVBoxLayout(settings_group)
-        settings_layout.setContentsMargins(Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD)
-        settings_layout.setSpacing(Spacing.SM)
+        settings_layout.setContentsMargins(
+            Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD
+        )
+        settings_layout.setSpacing(Spacing.MD)
 
         # Row 1: Duration, Mode
         row1 = QtWidgets.QHBoxLayout()
@@ -194,45 +207,20 @@ class PerfettoPanel(BasePanel):
         )
         row2.addWidget(self.output_path, 1)
 
-        self.open_output_btn = QtWidgets.QPushButton()
-        self.open_output_btn.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DirOpenIcon))
+        self.open_output_btn = QtWidgets.QPushButton("Open")
+        self.open_output_btn.setIcon(
+            self.style().standardIcon(QtWidgets.QStyle.SP_DirOpenIcon)
+        )
         self.open_output_btn.setToolTip("Open output directory")
-        self.open_output_btn.setMaximumWidth(36)
         self.open_output_btn.clicked.connect(self._on_open_output)
         row2.addWidget(self.open_output_btn)
 
         self.settings_dialog = PerfettoSettingsDialog(self)
-        self.settings_btn = QtWidgets.QPushButton("Settings")
+        self.settings_btn = QtWidgets.QPushButton("Advanced")
         self.settings_btn.clicked.connect(self.settings_dialog.exec)
         row2.addWidget(self.settings_btn)
 
         settings_layout.addLayout(row2)
-
-        # Row 3: Presets
-        preset_layout = QtWidgets.QHBoxLayout()
-        preset_layout.setSpacing(Spacing.SM)
-        preset_layout.addWidget(QtWidgets.QLabel("Presets:"))
-
-        self.preset_group = QtWidgets.QButtonGroup(self)
-        self._standard_preset_btn: Optional[QtWidgets.QRadioButton] = None
-        presets = [
-            ("standard", "Standard", "Basic CPU scheduling and atrace"),
-            ("graphics", "Graphics", "Standard + SurfaceFlinger + GPU"),
-            ("memory", "Memory", "Standard + memory tracking"),
-            ("full", "Full", "All data sources"),
-            ("custom", "Custom", "Manual configuration"),
-        ]
-        for preset_id, label, tooltip in presets:
-            btn = QtWidgets.QRadioButton(label)
-            btn.setToolTip(tooltip)
-            btn.setProperty("preset_id", preset_id)
-            self.preset_group.addButton(btn)
-            preset_layout.addWidget(btn)
-            if preset_id == "standard":
-                self._standard_preset_btn = btn
-
-        preset_layout.addStretch()
-        settings_layout.addLayout(preset_layout)
 
         layout.addWidget(settings_group)
 
@@ -242,27 +230,19 @@ class PerfettoPanel(BasePanel):
         sources_group = QtWidgets.QGroupBox("Data Sources")
         self.sources_group = sources_group
         sources_layout = QtWidgets.QVBoxLayout(sources_group)
-        sources_layout.setContentsMargins(Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD)
+        sources_layout.setContentsMargins(
+            Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD
+        )
         sources_layout.setSpacing(Spacing.MD)
 
-        self.source_summary_widget = QtWidgets.QWidget()
-        source_summary_layout = QtWidgets.QVBoxLayout(self.source_summary_widget)
-        source_summary_layout.setContentsMargins(0, 0, 0, 0)
-        source_summary_layout.setSpacing(Spacing.XS)
-
-        source_summary_label = QtWidgets.QLabel("Included")
-        source_summary_label.setStyleSheet(
-            f"color: {Colors.NEUTRAL_700}; font-size: 12px; font-weight: 600;"
+        sources_intro = QtWidgets.QLabel(
+            "Choose the signals you want in the trace. Start lean, then add more only when needed."
         )
-        source_summary_layout.addWidget(source_summary_label)
-
-        self.source_summary_value = QtWidgets.QLabel()
-        self.source_summary_value.setWordWrap(True)
-        self.source_summary_value.setStyleSheet(
-            f"color: {Colors.NEUTRAL_700}; line-height: 1.4;"
+        sources_intro.setWordWrap(True)
+        sources_intro.setStyleSheet(
+            f"color: {Colors.NEUTRAL_600}; line-height: 1.4;"
         )
-        source_summary_layout.addWidget(self.source_summary_value)
-        sources_layout.addWidget(self.source_summary_widget)
+        sources_layout.addWidget(sources_intro)
 
         self.sources_editor_widget = QtWidgets.QWidget()
         sources_editor_layout = QtWidgets.QGridLayout(self.sources_editor_widget)
@@ -282,7 +262,7 @@ class PerfettoPanel(BasePanel):
         # =====================================================================
         # ATRACE GROUP (category summary + app scope)
         # =====================================================================
-        atrace_group = QtWidgets.QGroupBox("Atrace")
+        atrace_group = QtWidgets.QGroupBox("Atrace Scope")
         self.atrace_group = atrace_group
         atrace_layout = QtWidgets.QVBoxLayout(atrace_group)
         atrace_layout.setContentsMargins(Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD)
@@ -292,7 +272,9 @@ class PerfettoPanel(BasePanel):
         self._category_summary.select_requested.connect(self._on_select_atrace)
         atrace_layout.addWidget(self._category_summary)
 
-        app_scope_row = QtWidgets.QHBoxLayout()
+        self.atrace_scope_row = QtWidgets.QWidget()
+        app_scope_row = QtWidgets.QHBoxLayout(self.atrace_scope_row)
+        app_scope_row.setContentsMargins(0, 0, 0, 0)
         app_scope_row.setSpacing(Spacing.SM)
         app_scope_row.addWidget(QtWidgets.QLabel("Apps:"))
 
@@ -305,25 +287,19 @@ class PerfettoPanel(BasePanel):
         self.atrace_target_combo.addItems(APP_TARGET_OPTIONS)
         self.atrace_target_combo.currentTextChanged.connect(self._toggle_custom_target)
         app_scope_row.addWidget(self.atrace_target_combo)
-        app_scope_row.addStretch(1)
-        atrace_layout.addLayout(app_scope_row)
 
         self.atrace_custom_target = QtWidgets.QLineEdit()
         self.atrace_custom_target.setPlaceholderText("com.example.app")
         self.atrace_custom_target.setEnabled(False)
         self.atrace_custom_target.setVisible(False)
-        self.atrace_custom_target.setMinimumWidth(280)
+        self.atrace_custom_target.setMinimumWidth(320)
         self.atrace_custom_target.setSizePolicy(
             QtWidgets.QSizePolicy.Policy.Expanding,
             QtWidgets.QSizePolicy.Policy.Preferred,
         )
-
-        self.atrace_custom_target_row = self._build_detail_row(
-            "Package:",
-            self.atrace_custom_target,
-        )
-        self.atrace_custom_target_row.setVisible(False)
-        atrace_layout.addWidget(self.atrace_custom_target_row)
+        app_scope_row.addWidget(self.atrace_custom_target, 1)
+        app_scope_row.addStretch(1)
+        atrace_layout.addWidget(self.atrace_scope_row)
 
         layout.addWidget(atrace_group)
 
@@ -335,15 +311,7 @@ class PerfettoPanel(BasePanel):
         self.result_card.view_trace_clicked.connect(self._on_view_in_perfetto)
         layout.addWidget(self.result_card)
 
-        # Connect preset buttons AFTER all UI is created
-        for btn in self.preset_group.buttons():
-            preset_id = btn.property("preset_id")
-            btn.toggled.connect(lambda checked, p=preset_id: self._on_preset_toggled(checked, p))
-
-        # Set default preset and apply it
-        if self._standard_preset_btn:
-            self._standard_preset_btn.setChecked(True)
-        self._apply_preset("standard")
+        self._apply_preset(_DEFAULT_SOURCE_PRESET)
 
     # =========================================================================
     # UI HELPERS
@@ -378,7 +346,6 @@ class PerfettoPanel(BasePanel):
         for key, label, tooltip in items:
             checkbox = QtWidgets.QCheckBox(label)
             checkbox.setToolTip(tooltip)
-            checkbox.toggled.connect(self._update_source_summary)
             setattr(self, f"ds_{key}", checkbox)
             self._ds_map[key] = checkbox
             layout.addWidget(checkbox)
@@ -390,28 +357,18 @@ class PerfettoPanel(BasePanel):
     # PRESET APPLICATION
     # =========================================================================
 
-    def _on_preset_toggled(self, checked: bool, preset_id: str) -> None:
-        if checked:
-            self._apply_preset(preset_id)
-
     def _apply_preset(self, preset_id: str) -> None:
-        """Apply preset: data sources (local) + atrace (from registry)."""
+        """Apply default source/category combinations without exposing preset UI."""
         self._current_preset = preset_id
-        if preset_id == "custom":
-            self._sync_sources_visibility()
-            return
 
-        # Data sources (Perfetto-specific concern)
         enabled = _DS_ENABLED.get(preset_id, _DS_ENABLED["standard"])
         for key, cb in self._ds_map.items():
             cb.setChecked(key in enabled)
 
-        # Atrace categories (unified registry)
         self._atrace_categories = list(
             ATRACE_PRESETS.get(preset_id, ATRACE_PRESETS["standard"])
         )
         self._update_category_summary()
-        self._sync_sources_visibility()
 
     # =========================================================================
     # ATRACE CATEGORY SELECTION
@@ -421,7 +378,9 @@ class PerfettoPanel(BasePanel):
         """Open the category dialog and apply user selection."""
         all_cats = sorted(CATEGORY_DESCRIPTIONS.keys())
         selected, accepted = CategoryDialog.select_categories(
-            self, all_cats, set(self._atrace_categories),
+            self,
+            all_cats,
+            set(self._atrace_categories),
         )
         if accepted:
             self._atrace_categories = selected
@@ -430,7 +389,9 @@ class PerfettoPanel(BasePanel):
     def _update_category_summary(self) -> None:
         preset_name = detect_preset_name(set(self._atrace_categories))
         self._category_summary.update_summary(
-            self._atrace_categories, len(CATEGORY_DESCRIPTIONS), preset_name,
+            self._atrace_categories,
+            len(CATEGORY_DESCRIPTIONS),
+            preset_name,
         )
 
     def _selected_atrace_categories(self) -> list[str]:
@@ -440,24 +401,7 @@ class PerfettoPanel(BasePanel):
         is_custom = text == CUSTOM_PACKAGE_TARGET
         self.atrace_custom_target.setEnabled(is_custom)
         self.atrace_custom_target.setVisible(is_custom)
-        self.atrace_custom_target_row.setVisible(is_custom)
         self.updateGeometry()
-
-    def _sync_sources_visibility(self) -> None:
-        is_custom = self._current_preset == "custom"
-        self.source_summary_widget.setVisible(not is_custom)
-        self.sources_editor_widget.setVisible(is_custom)
-        self._update_source_summary()
-
-    def _update_source_summary(self) -> None:
-        enabled = [
-            _DATA_SOURCE_LABELS[key]
-            for key, cb in self._ds_map.items()
-            if cb.isChecked()
-        ]
-        self.source_summary_value.setText(
-            ", ".join(enabled) if enabled else "No data sources selected."
-        )
 
     def _selected_atrace_apps(self) -> list[str]:
         return resolve_atrace_apps(
@@ -505,7 +449,9 @@ class PerfettoPanel(BasePanel):
         if self.presenter.error_message:
             self.error_message.emit(self.presenter.error_message)
         elif self.presenter.last_output_path:
-            self.status_message.emit(f"Trace saved to: {self.presenter.last_output_path}")
+            self.status_message.emit(
+                f"Trace saved to: {self.presenter.last_output_path}"
+            )
             self._show_result_card()
 
     # =========================================================================
@@ -522,16 +468,14 @@ class PerfettoPanel(BasePanel):
         text = self.settings_dialog.buffer_combo.currentText().replace("MB", "").strip()
         return int(text) * 1024
 
-    def _build_custom_config(
+    def _build_config(
         self,
         duration_seconds: int,
         buffer_size_kb: int,
         categories: list[str],
         atrace_apps: list[str],
     ) -> PerfettoConfig:
-        """Build the explicit config used for the custom preset."""
-        # Custom mode bypasses registry presets and mirrors the live checkbox
-        # state into a concrete PerfettoConfig.
+        """Build the explicit config from the visible checkbox state."""
         return PerfettoConfig(
             duration_ms=duration_seconds * 1000,
             buffer_size_kb=buffer_size_kb,
@@ -554,15 +498,12 @@ class PerfettoPanel(BasePanel):
         buffer_size_kb = self._buffer_kb()
         categories = self._selected_atrace_categories()
         atrace_apps = self._selected_atrace_apps()
-        preset = None if self._current_preset == "custom" else self._current_preset
-        config = None
-        if preset is None:
-            config = self._build_custom_config(
-                duration_seconds,
-                buffer_size_kb,
-                categories,
-                atrace_apps,
-            )
+        config = self._build_config(
+            duration_seconds,
+            buffer_size_kb,
+            categories,
+            atrace_apps,
+        )
 
         return PerfettoRequest(
             device_serial=self.device_serial or "",
@@ -571,7 +512,7 @@ class PerfettoPanel(BasePanel):
             categories=categories,
             atrace_apps=atrace_apps,
             output_dir=self.output_path.output_dir(),
-            preset=preset,
+            preset=None,
             config=config,
             auxiliary_options=self._auxiliary_options,
         )
@@ -583,7 +524,11 @@ class PerfettoPanel(BasePanel):
         file_name = os.path.basename(path)
         try:
             size = os.path.getsize(path)
-            file_size = f"{size / (1024 * 1024):.1f} MB" if size >= 1024 * 1024 else f"{size / 1024:.0f} KB"
+            file_size = (
+                f"{size / (1024 * 1024):.1f} MB"
+                if size >= 1024 * 1024
+                else f"{size / 1024:.0f} KB"
+            )
         except OSError:
             file_size = ""
         self.result_card.show_result(

@@ -172,9 +172,9 @@ _CHIP_QSS = f"""
     QLabel {{
         background-color: {Colors.NEUTRAL_100};
         border: 1px solid {Colors.NEUTRAL_300};
-        border-radius: 8px;
-        padding: 2px 8px;
-        font-size: 11px;
+        border-radius: 10px;
+        padding: 4px 10px;
+        font-size: 12px;
         color: {Colors.NEUTRAL_700};
     }}
 """
@@ -238,7 +238,7 @@ class CategorySummaryWidget(QtWidgets.QWidget):
             QtWidgets.QSizePolicy.Policy.Maximum,
             QtWidgets.QSizePolicy.Policy.Fixed,
         )
-        self._btn.setStyleSheet("padding: 2px 10px; min-height: 24px;")
+        self._btn.setStyleSheet("padding: 4px 12px; min-height: 28px;")
         self._btn.clicked.connect(self.select_requested.emit)
         header.addWidget(self._btn)
         header.addStretch()

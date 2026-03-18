@@ -51,7 +51,7 @@ def check_output(
 
     Raises RuntimeError with captured output on failure.
     """
-    logger.info("Executing: %s", " ".join(cmd))
+    logger.debug("Executing: %s", " ".join(cmd))
     try:
         return subprocess.check_output(
             list(cmd),

@@ -17,6 +17,11 @@ _SYSTRACE_LOCK = threading.Lock()
 _DEVNULL: io.TextIOWrapper | None = None
 
 
+def _normalize_systrace_output(data: str) -> str:
+    """Normalize vendored systrace console output for UI log readability."""
+    return data.replace("wrote file://", "Wrote file://")
+
+
 def _ensure_stdio() -> None:
     """Guard against None stdout/stderr in frozen GUI builds (PyInstaller)."""
     global _DEVNULL
@@ -38,10 +43,11 @@ class _TeeStream:
         self.encoding = getattr(original, "encoding", "utf-8")
 
     def write(self, data: str) -> int:
-        self._buffer.write(data)
+        normalized = _normalize_systrace_output(data)
+        self._buffer.write(normalized)
         if self._original is not None:
             try:
-                self._original.write(data)
+                self._original.write(normalized)
                 self._original.flush()
             except Exception:
                 pass
@@ -132,7 +138,18 @@ class SystraceAdapter:
             args.extend(["-a", app_name])
         args.extend(categories)
 
-        logger.info("Running systrace with args: %s", " ".join(args))
+        logger.info(
+            "Starting systrace capture: device=%s, duration=%ss",
+            device_serial,
+            time_seconds,
+        )
+        config_parts = [f"buffer={buffer_size_kb}KB" if buffer_size_kb else "buffer=default"]
+        if app_name:
+            config_parts.append(f"app={app_name}")
+        config_parts.append(
+            f"categories={' '.join(categories) if categories else '(none)'}"
+        )
+        logger.info("Atrace config: %s", ", ".join(config_parts))
         return self._import_and_run_systrace(args, tee=True)
 
     def get_categories(self, device_serial: str) -> list[str]:

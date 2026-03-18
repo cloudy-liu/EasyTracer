@@ -108,8 +108,8 @@ class Typography:
     FONT_MONO = '"JetBrains Mono", "Cascadia Mono", "Consolas", monospace'
 
     # Sizes (pixels)
-    SIZE_CAPTION = 11
-    SIZE_BODY = 13
+    SIZE_CAPTION = 12
+    SIZE_BODY = 14
     SIZE_SUBTITLE = 14
     SIZE_TITLE = 16
     SIZE_HEADLINE = 20
@@ -134,11 +134,11 @@ class Dimensions:
     BUTTON_RECORD_WIDTH = 96
     BUTTON_PADDING_H = 12
     BUTTON_PADDING_V = 4
-    BUTTON_BORDER_RADIUS = 8
+    BUTTON_BORDER_RADIUS = 10
     PRESET_BORDER_RADIUS = 16     # Pill shape for preset buttons
 
     # Inputs
-    INPUT_MIN_HEIGHT = 28
+    INPUT_MIN_HEIGHT = 32
 
     # Panels
     NAV_LIST_WIDTH = 160
@@ -152,5 +152,5 @@ class Dimensions:
     CATEGORY_GRID_SPACING = 4
 
     # Window
-    WINDOW_DEFAULT_WIDTH = 1200
+    WINDOW_DEFAULT_WIDTH = 1080
     WINDOW_DEFAULT_HEIGHT = 760

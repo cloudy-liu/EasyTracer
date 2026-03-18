@@ -33,8 +33,8 @@ NAV_SECTIONS = [
     (
         "Tracers",
         [
-            ("Systrace", "systrace", 1),
             ("Perfetto", "perfetto", 2),
+            ("Systrace", "systrace", 1),
             ("Simpleperf", "simpleperf", 3),
             ("Traceview", "traceview", 4),
             ("Combo", "combo", 5),
@@ -150,7 +150,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return unique_panels
 
     def _build_header_controls(self) -> None:
-        self.record_button = QtWidgets.QPushButton("录制")
+        self.record_button = QtWidgets.QPushButton("record")
         self.record_button.setMinimumWidth(Dimensions.BUTTON_RECORD_WIDTH)
         self.record_button.clicked.connect(self._on_global_record_clicked)
         self.record_button.setEnabled(False)
@@ -160,20 +160,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.device_label.setProperty("toolbarLabel", True)
 
         self.device_combo = QtWidgets.QComboBox()
-        self.device_combo.setMinimumWidth(220)
-        self.device_combo.setMaximumWidth(360)
+        self.device_combo.setMinimumWidth(200)
+        self.device_combo.setMaximumWidth(320)
         self.device_combo.currentIndexChanged.connect(self._on_device_selection_changed)
 
         self.refresh_button = QtWidgets.QPushButton("Refresh")
         self.refresh_button.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_BrowserReload))
         self.refresh_button.clicked.connect(self.refresh_devices)
 
-        self.toolbar_separator = QtWidgets.QFrame()
-        self.toolbar_separator.setObjectName("toolbarSeparator")
-        self.toolbar_separator.setFrameShape(QtWidgets.QFrame.VLine)
-        self.toolbar_separator.setFixedSize(1, 28)
-
-        self.aux_label = QtWidgets.QLabel("Capture extras")
+        self.aux_label = QtWidgets.QLabel("Extras")
         self.aux_label.setProperty("captionLabel", True)
 
         self.logcat_cb = QtWidgets.QCheckBox("Logcat")
@@ -221,33 +216,43 @@ class MainWindow(QtWidgets.QMainWindow):
         central = QtWidgets.QWidget()
         central.setObjectName("prototypeShell")
 
-        self.primary_toolbar_row = QtWidgets.QWidget()
-        self.primary_toolbar_row.setObjectName("primaryToolbarRow")
-        primary_layout = QtWidgets.QHBoxLayout(self.primary_toolbar_row)
-        primary_layout.setContentsMargins(16, 8, 16, 8)
-        primary_layout.setSpacing(12)
-        primary_layout.addWidget(self.device_label)
-        primary_layout.addWidget(self.device_combo)
-        primary_layout.addWidget(self.refresh_button)
-        primary_layout.addWidget(self.toolbar_separator)
-        primary_layout.addWidget(self.record_button)
-        primary_layout.addStretch(1)
+        self.header_toolbar_row = QtWidgets.QWidget()
+        self.header_toolbar_row.setObjectName("headerToolbarRow")
+        header_layout = QtWidgets.QHBoxLayout(self.header_toolbar_row)
+        header_layout.setContentsMargins(16, 10, 16, 10)
+        header_layout.setSpacing(14)
 
-        self.secondary_toolbar_row = QtWidgets.QWidget()
-        self.secondary_toolbar_row.setObjectName("secondaryToolbarRow")
-        secondary_layout = QtWidgets.QHBoxLayout(self.secondary_toolbar_row)
-        secondary_layout.setContentsMargins(16, 4, 16, 8)
-        secondary_layout.setSpacing(12)
-        secondary_layout.addWidget(self.aux_label)
-        secondary_layout.addWidget(self.logcat_cb)
-        secondary_layout.addWidget(self.packages_cb)
-        secondary_layout.addWidget(self.ps_cb)
-        secondary_layout.addWidget(self.meminfo_cb)
-        secondary_layout.addStretch(1)
+        self.primary_toolbar_row = self.header_toolbar_row
+        self.secondary_toolbar_row = None
+
+        self.header_device_group = QtWidgets.QWidget()
+        self.header_device_group.setObjectName("headerDeviceGroup")
+        device_layout = QtWidgets.QHBoxLayout(self.header_device_group)
+        device_layout.setContentsMargins(10, 8, 10, 8)
+        device_layout.setSpacing(8)
+        device_layout.addWidget(self.device_label)
+        device_layout.addWidget(self.device_combo)
+        device_layout.addWidget(self.refresh_button)
+
+        self.header_extras_group = QtWidgets.QWidget()
+        self.header_extras_group.setObjectName("headerExtrasGroup")
+        extras_layout = QtWidgets.QHBoxLayout(self.header_extras_group)
+        extras_layout.setContentsMargins(10, 8, 10, 8)
+        extras_layout.setSpacing(10)
+        extras_layout.addWidget(self.aux_label)
+        extras_layout.addWidget(self.logcat_cb)
+        extras_layout.addWidget(self.packages_cb)
+        extras_layout.addWidget(self.ps_cb)
+        extras_layout.addWidget(self.meminfo_cb)
+
+        header_layout.addWidget(self.header_device_group)
+        header_layout.addStretch(1)
+        header_layout.addWidget(self.header_extras_group)
+        header_layout.addWidget(self.record_button)
 
         self.sidebar_nav = QtWidgets.QFrame()
         self.sidebar_nav.setObjectName("sidebarNav")
-        self.sidebar_nav.setFixedWidth(160)
+        self.sidebar_nav.setFixedWidth(148)
         sidebar_layout = QtWidgets.QVBoxLayout(self.sidebar_nav)
         sidebar_layout.setContentsMargins(0, 8, 0, 8)
         sidebar_layout.setSpacing(0)
@@ -258,7 +263,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.content_stack_host = QtWidgets.QFrame()
         self.content_stack_host.setObjectName("contentStackHost")
         content_layout = QtWidgets.QVBoxLayout(self.content_stack_host)
-        content_layout.setContentsMargins(16, 16, 16, 16)
+        content_layout.setContentsMargins(18, 18, 18, 18)
         content_layout.setSpacing(0)
         content_layout.addWidget(self.stack, 1)
 
@@ -296,8 +301,7 @@ class MainWindow(QtWidgets.QMainWindow):
         shell_layout = QtWidgets.QVBoxLayout(central)
         shell_layout.setContentsMargins(0, 0, 0, 0)
         shell_layout.setSpacing(0)
-        shell_layout.addWidget(self.primary_toolbar_row)
-        shell_layout.addWidget(self.secondary_toolbar_row)
+        shell_layout.addWidget(self.header_toolbar_row)
         shell_layout.addWidget(body, 1)
 
         central.setStyleSheet(self._shell_stylesheet())
@@ -325,18 +329,14 @@ class MainWindow(QtWidgets.QMainWindow):
             color: {Colors.NEUTRAL_900};
         }}
 
-        QWidget#primaryToolbarRow {{
+        QWidget#headerToolbarRow {{
             background-color: {Colors.NEUTRAL_100};
             border-bottom: 1px solid {Colors.NEUTRAL_300};
         }}
 
-        QWidget#secondaryToolbarRow {{
-            background-color: {Colors.NEUTRAL_50};
-            border-bottom: 1px solid {Colors.NEUTRAL_300};
-        }}
-
-        QFrame#toolbarSeparator {{
-            background-color: {Colors.NEUTRAL_300};
+        QWidget#headerDeviceGroup,
+        QWidget#headerExtrasGroup {{
+            background-color: transparent;
         }}
 
         QLabel[toolbarLabel="true"] {{
@@ -348,6 +348,14 @@ class MainWindow(QtWidgets.QMainWindow):
         QLabel[captionLabel="true"] {{
             color: {Colors.NEUTRAL_600};
             font-size: {Typography.SIZE_CAPTION}px;
+            font-weight: 600;
+        }}
+
+        QWidget#headerDeviceGroup,
+        QWidget#headerExtrasGroup {{
+            background-color: {Colors.SURFACE};
+            border: 1px solid {Colors.NEUTRAL_300};
+            border-radius: 12px;
         }}
 
         QFrame#sidebarNav {{
@@ -648,12 +656,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _set_record_button_visuals(self, is_recording: bool) -> None:
         if is_recording:
-            self.record_button.setText("停止")
+            self.record_button.setText("stop")
             self.record_button.setIcon(
                 self.style().standardIcon(QtWidgets.QStyle.SP_MediaStop)
             )
         else:
-            self.record_button.setText("录制")
+            self.record_button.setText("record")
             self.record_button.setIcon(
                 self.style().standardIcon(QtWidgets.QStyle.SP_MediaPlay)
             )

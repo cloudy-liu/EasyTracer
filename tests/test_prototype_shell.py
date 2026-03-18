@@ -75,8 +75,8 @@ def test_main_window_builds_prototype_shell(tmp_path):
     window = _build_window(tmp_path)
 
     try:
-        assert window.findChild(QtWidgets.QWidget, "primaryToolbarRow") is not None
-        assert window.findChild(QtWidgets.QWidget, "secondaryToolbarRow") is not None
+        assert window.findChild(QtWidgets.QWidget, "headerToolbarRow") is not None
+        assert window.findChild(QtWidgets.QWidget, "secondaryToolbarRow") is None
         assert window.findChild(QtWidgets.QWidget, "sidebarNav") is not None
         assert window.findChild(QtWidgets.QWidget, "contentStackHost") is not None
         assert window.findChild(QtWidgets.QWidget, "logArea") is not None
@@ -99,6 +99,32 @@ def test_main_window_defaults_to_perfetto_panel(tmp_path):
         current_panel = window.stack.currentWidget()
         assert current_panel is not None
         assert current_panel.property("panel_key") == "perfetto"
+    finally:
+        window.close()
+
+
+def test_main_window_lists_perfetto_before_systrace(tmp_path):
+    window = _build_window(tmp_path)
+
+    try:
+        tracer_labels = [
+            button.text()
+            for stack_index, button in window._nav_buttons.items()
+            if stack_index in {1, 2, 3, 4, 5}
+        ]
+        assert tracer_labels[:2] == ["Perfetto", "Systrace"]
+    finally:
+        window.close()
+
+
+def test_record_button_uses_english_labels(tmp_path):
+    window = _build_window(tmp_path)
+
+    try:
+        assert window.record_button.text() == "record"
+
+        window._set_record_button_visuals(is_recording=True)
+        assert window.record_button.text() == "stop"
     finally:
         window.close()
 
@@ -194,6 +220,7 @@ def test_window_uses_compact_default_height(tmp_path):
     window = _build_window(tmp_path)
 
     try:
+        assert window.width() == 1080
         assert window.height() == 760
     finally:
         window.close()
@@ -233,7 +260,7 @@ def test_global_stylesheet_contains_combo_arrow_and_checkbox_states():
     assert "check-white.svg" in stylesheet
 
 
-def test_perfetto_panel_uses_dropdown_app_targets_and_progressive_sources(tmp_path):
+def test_perfetto_panel_uses_direct_sources_and_inline_atrace_scope(tmp_path):
     window = _build_window(tmp_path)
 
     try:
@@ -241,16 +268,18 @@ def test_perfetto_panel_uses_dropdown_app_targets_and_progressive_sources(tmp_pa
         panel = window.perfetto_panel
         assert panel is not None
         assert panel.sources_group.title() == "Data Sources"
-        assert panel.atrace_group.title() == "Atrace"
+        assert panel.atrace_group.title() == "Atrace Scope"
         assert panel.atrace_target_combo.currentText() == "All Apps (*)"
-        assert panel.atrace_custom_target_row.isHidden() is True
-        assert panel.source_summary_widget.isHidden() is False
-        assert panel.sources_editor_widget.isHidden() is True
+        assert panel.ds_ftrace.isHidden() is False
+        assert panel.ds_process_stats.isHidden() is False
+        assert panel.atrace_target_combo.parentWidget() is panel.atrace_scope_row
+        assert panel.atrace_custom_target.parentWidget() is panel.atrace_scope_row
+        assert panel.atrace_custom_target.isHidden() is True
     finally:
         window.close()
 
 
-def test_perfetto_custom_preset_reveals_source_editor(tmp_path):
+def test_perfetto_panel_reveals_custom_package_inline(tmp_path):
     window = _build_window(tmp_path)
 
     try:
@@ -258,9 +287,9 @@ def test_perfetto_custom_preset_reveals_source_editor(tmp_path):
         panel = window.perfetto_panel
         assert panel is not None
 
-        panel._apply_preset("custom")
+        panel._toggle_custom_target("Custom Package")
 
-        assert panel.source_summary_widget.isHidden() is True
-        assert panel.sources_editor_widget.isHidden() is False
+        assert panel.atrace_custom_target.isHidden() is False
+        assert panel.atrace_custom_target.isEnabled() is True
     finally:
         window.close()
