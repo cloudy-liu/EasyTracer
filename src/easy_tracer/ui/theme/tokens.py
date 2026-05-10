@@ -138,7 +138,7 @@ class Dimensions:
     PRESET_BORDER_RADIUS = 16     # Pill shape for preset buttons
 
     # Inputs
-    INPUT_MIN_HEIGHT = 32
+    INPUT_MIN_HEIGHT = 28
 
     # Panels
     NAV_LIST_WIDTH = 160

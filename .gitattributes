@@ -1,0 +1,41 @@
+# Store text as LF by default. This prevents CRLF-only rewrites from becoming
+# noisy diffs on Windows editors.
+* text=auto eol=lf
+
+# Source, documentation, and config files are explicitly pinned to LF.
+*.py text eol=lf
+*.pyi text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.txt text eol=lf
+*.svg text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.spec text eol=lf
+
+.editorconfig text eol=lf
+.gitattributes text eol=lf
+.gitignore text eol=lf
+
+# Windows launch scripts are allowed to keep native line endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary artifacts must never pass through text normalization.
+*.dll binary
+*.exe binary
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.trace binary
+*.perfetto-trace binary
+*.data binary

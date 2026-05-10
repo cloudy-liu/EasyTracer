@@ -17,83 +17,23 @@ from easy_tracer.framework.perfetto_config_builder import PerfettoConfig
 from easy_tracer.models.category_registry import (
     CATEGORY_DESCRIPTIONS,
     ATRACE_PRESETS,
-    detect_preset_name,
 )
 from easy_tracer.models.requests import PerfettoRequest
 from easy_tracer.presenters.perfetto_presenter import PerfettoPresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
 from easy_tracer.ui.components.cards import ResultCard
-from easy_tracer.ui.dialogs.category_dialog import CategoryDialog, CategorySummaryWidget
-from easy_tracer.ui.panels.app_targets import (
-    APP_TARGET_OPTIONS,
-    CUSTOM_PACKAGE_TARGET,
-    resolve_atrace_apps,
+from easy_tracer.ui.components.perfetto_controls import (
+    AtraceScopeEditor,
+    DATA_SOURCE_SECTIONS,
+    DEFAULT_SOURCE_PRESET,
+    PerfettoDataSourceTabs,
+    SOURCE_PRESET_ENABLED,
 )
+from easy_tracer.ui.dialogs.category_dialog import CategoryDialog
 from easy_tracer.ui.panels.base_panel import BasePanel
 from easy_tracer.ui.dialogs.base_settings_dialog import BaseSettingsDialog
-from easy_tracer.ui.theme import Colors, Spacing
-
-
-# =============================================================================
-# PERFETTO DATA SOURCE DEFAULTS (Perfetto-specific, NOT atrace)
-# =============================================================================
-
-_DS_ENABLED: dict[str, set[str]] = {
-    "standard": {"ftrace", "process_stats"},
-    "graphics": {"ftrace", "process_stats", "surfaceflinger", "gpu_memory"},
-    "memory": {"ftrace", "process_stats", "sys_stats"},
-    "full": {
-        "ftrace",
-        "process_stats",
-        "sys_stats",
-        "system_info",
-        "surfaceflinger",
-        "gpu_memory",
-        "packages_list",
-        "android_log",
-    },
-}
-_DEFAULT_SOURCE_PRESET = "standard"
-
-_DATA_SOURCE_SECTIONS: tuple[tuple[str, tuple[tuple[str, str, str], ...]], ...] = (
-    (
-        "Core",
-        (
-            ("ftrace", "Ftrace", "CPU scheduling and low-level system events."),
-            ("process_stats", "Process Stats", "Per-process CPU and memory snapshots."),
-        ),
-    ),
-    (
-        "Graphics",
-        (
-            (
-                "surfaceflinger",
-                "SurfaceFlinger",
-                "Android frame timeline and compositor events.",
-            ),
-            ("gpu_memory", "GPU Memory", "GPU memory usage counters."),
-        ),
-    ),
-    (
-        "Memory",
-        (("sys_stats", "Sys Stats", "System-wide memory counters."),),
-    ),
-    (
-        "System",
-        (
-            ("system_info", "System Info", "Kernel, CPU, and device metadata."),
-            ("packages_list", "Packages List", "Installed packages metadata."),
-            ("android_log", "Android Log", "Logcat stream inside the trace."),
-        ),
-    ),
-)
-_DATA_SOURCE_LABELS = {
-    key: label
-    for _section, items in _DATA_SOURCE_SECTIONS
-    for key, label, _tooltip in items
-}
-
+from easy_tracer.ui.theme import Spacing
 
 class _UpdateEmitter(QtCore.QObject):
     updated = QtCore.Signal()
@@ -172,7 +112,7 @@ class PerfettoPanel(BasePanel):
         settings_layout.setContentsMargins(
             Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD
         )
-        settings_layout.setSpacing(Spacing.MD)
+        settings_layout.setSpacing(Spacing.SM)
 
         # Row 1: Duration, Mode
         row1 = QtWidgets.QHBoxLayout()
@@ -180,6 +120,11 @@ class PerfettoPanel(BasePanel):
 
         row1.addWidget(QtWidgets.QLabel("Duration:"))
         self.duration_combo = QtWidgets.QComboBox()
+        self._configure_compact_combo(self.duration_combo, 6)
+        self.duration_combo.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Maximum,
+            QtWidgets.QSizePolicy.Policy.Preferred,
+        )
         self.duration_combo.addItems(["5s", "10s", "30s", "60s", "5min", "10min"])
         self.duration_combo.setCurrentIndex(1)  # 10s default
         row1.addWidget(self.duration_combo)
@@ -233,29 +178,16 @@ class PerfettoPanel(BasePanel):
         sources_layout.setContentsMargins(
             Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD
         )
-        sources_layout.setSpacing(Spacing.MD)
+        sources_layout.setSpacing(Spacing.SM)
 
-        sources_intro = QtWidgets.QLabel(
-            "Choose the signals you want in the trace. Start lean, then add more only when needed."
-        )
-        sources_intro.setWordWrap(True)
-        sources_intro.setStyleSheet(
-            f"color: {Colors.NEUTRAL_600}; line-height: 1.4;"
-        )
-        sources_layout.addWidget(sources_intro)
+        self.sources_status_label = None
 
-        self.sources_editor_widget = QtWidgets.QWidget()
-        sources_editor_layout = QtWidgets.QGridLayout(self.sources_editor_widget)
-        sources_editor_layout.setContentsMargins(0, 0, 0, 0)
-        sources_editor_layout.setHorizontalSpacing(Spacing.LG)
-        sources_editor_layout.setVerticalSpacing(Spacing.MD)
-
-        self._ds_map: dict[str, QtWidgets.QCheckBox] = {}
-        for index, (section_title, items) in enumerate(_DATA_SOURCE_SECTIONS):
-            section = self._build_source_section(section_title, items)
-            sources_editor_layout.addWidget(section, index // 2, index % 2)
-
-        sources_layout.addWidget(self.sources_editor_widget)
+        self.data_sources = PerfettoDataSourceTabs(DATA_SOURCE_SECTIONS)
+        self.data_tabs = self.data_sources
+        self._ds_map = self.data_sources.checkboxes
+        for key, checkbox in self._ds_map.items():
+            setattr(self, f"ds_{key}", checkbox)
+        sources_layout.addWidget(self.data_tabs)
 
         layout.addWidget(sources_group)
 
@@ -266,40 +198,20 @@ class PerfettoPanel(BasePanel):
         self.atrace_group = atrace_group
         atrace_layout = QtWidgets.QVBoxLayout(atrace_group)
         atrace_layout.setContentsMargins(Spacing.MD, Spacing.LG, Spacing.MD, Spacing.MD)
-        atrace_layout.setSpacing(Spacing.MD)
+        atrace_layout.setSpacing(Spacing.SM)
 
-        self._category_summary = CategorySummaryWidget(title="Categories")
-        self._category_summary.select_requested.connect(self._on_select_atrace)
-        atrace_layout.addWidget(self._category_summary)
-
-        self.atrace_scope_row = QtWidgets.QWidget()
-        app_scope_row = QtWidgets.QHBoxLayout(self.atrace_scope_row)
-        app_scope_row.setContentsMargins(0, 0, 0, 0)
-        app_scope_row.setSpacing(Spacing.SM)
-        app_scope_row.addWidget(QtWidgets.QLabel("Apps:"))
-
-        self.atrace_target_combo = QtWidgets.QComboBox()
-        self._configure_compact_combo(self.atrace_target_combo, 12)
-        self.atrace_target_combo.setSizePolicy(
-            QtWidgets.QSizePolicy.Policy.Maximum,
-            QtWidgets.QSizePolicy.Policy.Preferred,
+        self.atrace_scope = AtraceScopeEditor(
+            list(self._atrace_categories),
+            len(CATEGORY_DESCRIPTIONS),
         )
-        self.atrace_target_combo.addItems(APP_TARGET_OPTIONS)
-        self.atrace_target_combo.currentTextChanged.connect(self._toggle_custom_target)
-        app_scope_row.addWidget(self.atrace_target_combo)
+        self.atrace_scope.category_edit_requested.connect(self._on_select_atrace)
+        atrace_layout.addWidget(self.atrace_scope)
 
-        self.atrace_custom_target = QtWidgets.QLineEdit()
-        self.atrace_custom_target.setPlaceholderText("com.example.app")
-        self.atrace_custom_target.setEnabled(False)
-        self.atrace_custom_target.setVisible(False)
-        self.atrace_custom_target.setMinimumWidth(320)
-        self.atrace_custom_target.setSizePolicy(
-            QtWidgets.QSizePolicy.Policy.Expanding,
-            QtWidgets.QSizePolicy.Policy.Preferred,
-        )
-        app_scope_row.addWidget(self.atrace_custom_target, 1)
-        app_scope_row.addStretch(1)
-        atrace_layout.addWidget(self.atrace_scope_row)
+        self.atrace_header_row = self.atrace_scope.header_row
+        self.atrace_app_widget = self.atrace_scope.app_widget
+        self.atrace_target_combo = self.atrace_scope.target_combo
+        self.atrace_custom_target = self.atrace_scope.custom_target
+        self._category_summary = self.atrace_scope.category_summary
 
         layout.addWidget(atrace_group)
 
@@ -311,7 +223,7 @@ class PerfettoPanel(BasePanel):
         self.result_card.view_trace_clicked.connect(self._on_view_in_perfetto)
         layout.addWidget(self.result_card)
 
-        self._apply_preset(_DEFAULT_SOURCE_PRESET)
+        self._apply_preset(DEFAULT_SOURCE_PRESET)
 
     # =========================================================================
     # UI HELPERS
@@ -327,32 +239,6 @@ class PerfettoPanel(BasePanel):
         )
         combo.setMinimumContentsLength(minimum_contents_length)
 
-    def _build_source_section(
-        self,
-        title: str,
-        items: tuple[tuple[str, str, str], ...],
-    ) -> QtWidgets.QWidget:
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(Spacing.XS)
-
-        header = QtWidgets.QLabel(title)
-        header.setStyleSheet(
-            f"color: {Colors.NEUTRAL_700}; font-size: 12px; font-weight: 600;"
-        )
-        layout.addWidget(header)
-
-        for key, label, tooltip in items:
-            checkbox = QtWidgets.QCheckBox(label)
-            checkbox.setToolTip(tooltip)
-            setattr(self, f"ds_{key}", checkbox)
-            self._ds_map[key] = checkbox
-            layout.addWidget(checkbox)
-
-        layout.addStretch(1)
-        return widget
-
     # =========================================================================
     # PRESET APPLICATION
     # =========================================================================
@@ -361,9 +247,11 @@ class PerfettoPanel(BasePanel):
         """Apply default source/category combinations without exposing preset UI."""
         self._current_preset = preset_id
 
-        enabled = _DS_ENABLED.get(preset_id, _DS_ENABLED["standard"])
-        for key, cb in self._ds_map.items():
-            cb.setChecked(key in enabled)
+        enabled = SOURCE_PRESET_ENABLED.get(
+            preset_id,
+            SOURCE_PRESET_ENABLED["standard"],
+        )
+        self.data_sources.set_enabled_keys(enabled)
 
         self._atrace_categories = list(
             ATRACE_PRESETS.get(preset_id, ATRACE_PRESETS["standard"])
@@ -380,34 +268,26 @@ class PerfettoPanel(BasePanel):
         selected, accepted = CategoryDialog.select_categories(
             self,
             all_cats,
-            set(self._atrace_categories),
+            set(self.atrace_scope.selected_categories()),
         )
         if accepted:
             self._atrace_categories = selected
             self._update_category_summary()
 
     def _update_category_summary(self) -> None:
-        preset_name = detect_preset_name(set(self._atrace_categories))
-        self._category_summary.update_summary(
+        self.atrace_scope.set_categories(
             self._atrace_categories,
             len(CATEGORY_DESCRIPTIONS),
-            preset_name,
         )
 
     def _selected_atrace_categories(self) -> list[str]:
-        return list(self._atrace_categories)
+        return self.atrace_scope.selected_categories()
 
     def _toggle_custom_target(self, text: str) -> None:
-        is_custom = text == CUSTOM_PACKAGE_TARGET
-        self.atrace_custom_target.setEnabled(is_custom)
-        self.atrace_custom_target.setVisible(is_custom)
-        self.updateGeometry()
+        self.atrace_scope.sync_custom_target(text)
 
     def _selected_atrace_apps(self) -> list[str]:
-        return resolve_atrace_apps(
-            self.atrace_target_combo.currentText(),
-            self.atrace_custom_target.text(),
-        )
+        return self.atrace_scope.selected_apps()
 
     # =========================================================================
     # AUXILIARY / NAVIGATION
@@ -483,14 +363,14 @@ class PerfettoPanel(BasePanel):
             flush_period_ms=self.settings_dialog.flush_period.value(),
             atrace_categories=categories,
             atrace_apps=atrace_apps,
-            enable_ftrace=self.ds_ftrace.isChecked(),
-            enable_process_stats=self.ds_process_stats.isChecked(),
-            enable_sys_stats=self.ds_sys_stats.isChecked(),
-            enable_system_info=self.ds_system_info.isChecked(),
-            enable_surfaceflinger=self.ds_surfaceflinger.isChecked(),
-            enable_gpu_memory=self.ds_gpu_memory.isChecked(),
-            enable_packages_list=self.ds_packages_list.isChecked(),
-            enable_android_log=self.ds_android_log.isChecked(),
+            enable_ftrace=self.data_sources.is_enabled("ftrace"),
+            enable_process_stats=self.data_sources.is_enabled("process_stats"),
+            enable_sys_stats=self.data_sources.is_enabled("sys_stats"),
+            enable_system_info=self.data_sources.is_enabled("system_info"),
+            enable_surfaceflinger=self.data_sources.is_enabled("surfaceflinger"),
+            enable_gpu_memory=self.data_sources.is_enabled("gpu_memory"),
+            enable_packages_list=self.data_sources.is_enabled("packages_list"),
+            enable_android_log=self.data_sources.is_enabled("android_log"),
         )
 
     def _build_request(self) -> PerfettoRequest:

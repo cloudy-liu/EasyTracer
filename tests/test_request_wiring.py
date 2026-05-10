@@ -140,17 +140,21 @@ def test_perfetto_panel_start_capture_builds_perfetto_request(monkeypatch):
         flush_period=_spin_value(30000),
     )
     panel.duration_combo = _text_value("10s")
-    panel._atrace_categories = ["gfx", "sched"]
-    panel.atrace_target_combo = _text_value("Settings")
-    panel.atrace_custom_target = SimpleNamespace(text=lambda: "")
-    panel.ds_ftrace = _checkbox(True)
-    panel.ds_process_stats = _checkbox(True)
-    panel.ds_sys_stats = _checkbox(True)
-    panel.ds_system_info = _checkbox(False)
-    panel.ds_surfaceflinger = _checkbox(True)
-    panel.ds_gpu_memory = _checkbox(True)
-    panel.ds_packages_list = _checkbox(True)
-    panel.ds_android_log = _checkbox(True)
+    panel.atrace_scope = SimpleNamespace(
+        selected_categories=lambda: ["gfx", "sched"],
+        selected_apps=lambda: ["com.android.settings"],
+    )
+    source_flags = {
+        "ftrace": True,
+        "process_stats": True,
+        "sys_stats": True,
+        "system_info": False,
+        "surfaceflinger": True,
+        "gpu_memory": True,
+        "packages_list": True,
+        "android_log": True,
+    }
+    panel.data_sources = SimpleNamespace(is_enabled=lambda key: source_flags[key])
 
     monkeypatch.setattr(perfetto_panel_module, "run_in_thread", lambda fn, *args: fn(*args))
 
