@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
@@ -24,6 +25,7 @@ from easy_tracer.services.perfetto_service import PerfettoService
 from easy_tracer.services.simpleperf_service import SimpleperfService
 from easy_tracer.services.traceview_service import TraceviewService
 from easy_tracer.ui.main_window import MainWindow
+from easy_tracer.ui.theme import Dimensions
 from easy_tracer.ui.theme.stylesheet import generate_app_stylesheet
 
 
@@ -260,7 +262,59 @@ def test_global_stylesheet_contains_combo_arrow_and_checkbox_states():
     assert "check-white.svg" in stylesheet
 
 
-def test_perfetto_panel_uses_direct_sources_and_inline_atrace_scope(tmp_path):
+def test_theme_tokens_restore_pre_f7bd73c_input_height():
+    assert Dimensions.INPUT_MIN_HEIGHT == 28
+
+
+def test_global_stylesheet_restores_pre_f7bd73c_control_heights():
+    stylesheet = generate_app_stylesheet()
+
+    group_box_block = re.search(r"QGroupBox \{(?P<body>.*?)\n        \}", stylesheet, re.S)
+    assert group_box_block is not None
+    assert "margin-top: 14px;" in group_box_block.group("body")
+    assert "padding: 12px 16px 16px 16px;" in group_box_block.group("body")
+    assert "padding-top: 16px;" in group_box_block.group("body")
+
+    line_edit_block = re.search(r"QLineEdit \{(?P<body>.*?)\n        \}", stylesheet, re.S)
+    assert line_edit_block is not None
+    assert f"min-height: {Dimensions.INPUT_MIN_HEIGHT}px;" in line_edit_block.group("body")
+
+    tool_button_block = re.search(r"QToolButton \{(?P<body>.*?)\n        \}", stylesheet, re.S)
+    assert tool_button_block is not None
+    assert "min-height" not in tool_button_block.group("body")
+
+    assert "min-height: 24px;" in stylesheet
+    assert stylesheet.count("min-height: 28px;") >= 2
+
+
+def test_input_controls_use_matching_runtime_heights():
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    app.setStyleSheet(generate_app_stylesheet())
+
+    line_edit = QtWidgets.QLineEdit()
+    combo_box = QtWidgets.QComboBox()
+    combo_box.addItems(["A", "B"])
+    spin_box = QtWidgets.QSpinBox()
+
+    try:
+        line_edit.show()
+        combo_box.show()
+        spin_box.show()
+        app.processEvents()
+
+        heights = {
+            "line_edit": line_edit.height(),
+            "combo_box": combo_box.height(),
+            "spin_box": spin_box.height(),
+        }
+        assert len(set(heights.values())) == 1, heights
+    finally:
+        line_edit.close()
+        combo_box.close()
+        spin_box.close()
+
+
+def test_perfetto_panel_uses_tabbed_sources_and_inline_atrace_scope(tmp_path):
     window = _build_window(tmp_path)
 
     try:
@@ -270,11 +324,45 @@ def test_perfetto_panel_uses_direct_sources_and_inline_atrace_scope(tmp_path):
         assert panel.sources_group.title() == "Data Sources"
         assert panel.atrace_group.title() == "Atrace Scope"
         assert panel.atrace_target_combo.currentText() == "All Apps (*)"
+        assert panel.layout().indexOf(panel.sources_group) < panel.layout().indexOf(panel.atrace_group)
+        assert panel.sources_status_label is None
+        assert panel.data_tabs.count() == 4
+        assert panel.data_tabs.tabPosition() == QtWidgets.QTabWidget.TabPosition.North
+        assert panel.data_tabs.tabText(0).startswith("Core")
+        assert panel.data_tabs.tabText(1).startswith("Graphics")
+        assert isinstance(panel.data_tabs.widget(0).layout(), QtWidgets.QGridLayout)
         assert panel.ds_ftrace.isHidden() is False
         assert panel.ds_process_stats.isHidden() is False
-        assert panel.atrace_target_combo.parentWidget() is panel.atrace_scope_row
-        assert panel.atrace_custom_target.parentWidget() is panel.atrace_scope_row
+        assert panel.atrace_app_widget.parentWidget() is panel.atrace_header_row
+        assert panel.atrace_target_combo.parentWidget() is panel.atrace_app_widget
+        assert panel.atrace_custom_target.parentWidget() is panel.atrace_app_widget
         assert panel.atrace_custom_target.isHidden() is True
+
+        overflow = panel._category_summary._chip_container.findChild(
+            QtWidgets.QLabel,
+            "summaryOverflowChip",
+        )
+        assert overflow is None
+    finally:
+        window.close()
+
+
+def test_perfetto_panel_updates_tab_counts_when_sources_change(tmp_path):
+    window = _build_window(tmp_path)
+    app = QtWidgets.QApplication.instance()
+    assert app is not None
+
+    try:
+        window._activate_stack_index(2)
+        panel = window.perfetto_panel
+        assert panel is not None
+
+        assert panel.data_tabs.tabText(3).endswith("(0/3)")
+
+        panel.ds_android_log.setChecked(True)
+        app.processEvents()
+
+        assert panel.data_tabs.tabText(3).endswith("(1/3)")
     finally:
         window.close()
 

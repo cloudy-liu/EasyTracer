@@ -91,3 +91,16 @@ def test_systrace_panel_output_path_keeps_expanded_width(monkeypatch):
     app.processEvents()
 
     assert panel.output_path.parentWidget().width() >= 500
+
+
+def test_systrace_panel_reports_legacy_status_without_banner(monkeypatch):
+    panel = _build_panel(monkeypatch)
+    messages = []
+    panel.status_message.connect(messages.append)
+
+    panel.update_device("SER123")
+
+    assert not hasattr(panel, "_deprecation")
+    assert messages[-1] == (
+        "Selected device: SER123. Systrace is legacy; Perfetto is the default tracer."
+    )

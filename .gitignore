@@ -4,6 +4,9 @@ PerfAllInOne_release_2023_04_20_21_28_52/
 # Local agent instruction files (keep local only)
 AGENTS.md
 CLAUDE.md
+CONTEXT.md
+docs/
+error.png
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -76,9 +79,6 @@ instance/
 
 # Scrapy stuff:
 .scrapy
-
-# Sphinx documentation
-docs/_build/
 
 # PyBuilder
 .pybuilder/

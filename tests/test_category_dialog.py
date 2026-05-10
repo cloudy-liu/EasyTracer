@@ -100,3 +100,23 @@ def test_category_summary_refresh_replaces_old_chips():
         assert overflow is None
     finally:
         widget.close()
+
+
+def test_category_summary_can_limit_visible_chips_with_overflow_badge():
+    app = _build_app()
+    widget = CategorySummaryWidget(max_visible_chips=3)
+
+    try:
+        selected = ["am", "binder_driver", "binder_lock", "dalvik", "freq", "gfx"]
+        widget.update_summary(selected, 45, "Standard")
+        widget.show()
+        app.processEvents()
+
+        chips = widget._chip_container.findChildren(QtWidgets.QLabel, "summaryChip")
+        overflow = widget._chip_container.findChild(QtWidgets.QLabel, "summaryOverflowChip")
+
+        assert [chip.text() for chip in chips] == ["am", "binder_driver", "binder_lock"]
+        assert overflow is not None
+        assert overflow.text() == "+3"
+    finally:
+        widget.close()

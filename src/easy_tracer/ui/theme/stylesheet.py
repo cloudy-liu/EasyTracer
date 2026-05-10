@@ -130,7 +130,7 @@ def generate_app_stylesheet() -> str:
             border: 1px solid {Colors.NEUTRAL_300};
             border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
             background-color: {Colors.SURFACE};
-            min-height: 28px;
+            min-height: 24px;
             font-weight: 500;
         }}
 
@@ -159,7 +159,6 @@ def generate_app_stylesheet() -> str:
             border: 1px solid {Colors.NEUTRAL_300};
             border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
             background-color: {Colors.SURFACE};
-            min-height: 28px;
         }}
 
         QToolButton:hover {{
@@ -271,6 +270,10 @@ def generate_app_stylesheet() -> str:
             border-radius: {Dimensions.BUTTON_BORDER_RADIUS}px;
             background-color: {Colors.SURFACE};
             min-height: {Dimensions.INPUT_MIN_HEIGHT}px;
+        }}
+
+        QAbstractSpinBox {{
+            max-height: {Dimensions.INPUT_MIN_HEIGHT}px;
         }}
 
         QSpinBox:hover {{

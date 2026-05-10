@@ -200,8 +200,10 @@ class CategorySummaryWidget(QtWidgets.QWidget):
         parent: Optional[QtWidgets.QWidget] = None,
         *,
         title: str = "Atrace",
+        max_visible_chips: Optional[int] = None,
     ):
         super().__init__(parent)
+        self._max_visible_chips = max_visible_chips
 
         outer = QtWidgets.QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -273,7 +275,16 @@ class CategorySummaryWidget(QtWidgets.QWidget):
                     widget.setParent(None)
                     widget.deleteLater()
 
-        for cat in sorted(categories):
+        visible_categories = sorted(categories)
+        overflow_categories: list[str] = []
+        if (
+            self._max_visible_chips is not None
+            and len(visible_categories) > self._max_visible_chips
+        ):
+            overflow_categories = visible_categories[self._max_visible_chips:]
+            visible_categories = visible_categories[: self._max_visible_chips]
+
+        for cat in visible_categories:
             chip = QtWidgets.QLabel(cat)
             chip.setObjectName("summaryChip")
             chip.setStyleSheet(_CHIP_QSS)
@@ -283,5 +294,16 @@ class CategorySummaryWidget(QtWidgets.QWidget):
                 QtWidgets.QSizePolicy.Policy.Fixed,
             )
             self._chip_layout.addWidget(chip)
+
+        if overflow_categories:
+            overflow = QtWidgets.QLabel(f"+{len(overflow_categories)}")
+            overflow.setObjectName("summaryOverflowChip")
+            overflow.setStyleSheet(_CHIP_QSS)
+            overflow.setToolTip(", ".join(overflow_categories))
+            overflow.setSizePolicy(
+                QtWidgets.QSizePolicy.Policy.Maximum,
+                QtWidgets.QSizePolicy.Policy.Fixed,
+            )
+            self._chip_layout.addWidget(overflow)
 
         self._chip_container.updateGeometry()

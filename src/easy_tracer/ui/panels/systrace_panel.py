@@ -22,7 +22,6 @@ from easy_tracer.models.requests import SystraceRequest
 from easy_tracer.presenters.systrace_presenter import SystracePresenter
 from easy_tracer.ui.qt_threading import run_in_thread
 from easy_tracer.ui.components.output_path_widget import OutputPathWidget
-from easy_tracer.ui.components.cards import DeprecationBanner
 from easy_tracer.ui.dialogs.category_dialog import CategoryDialog, CategorySummaryWidget
 from easy_tracer.ui.panels.app_targets import (
     APP_TARGET_OPTIONS,
@@ -38,6 +37,7 @@ from easy_tracer.ui.theme import Spacing
 # =============================================================================
 
 BUFFER_PRESET_VALUES_KB = [4096, 8192, 10240, 16384, 32768, 65536]
+LEGACY_STATUS_MESSAGE = "Systrace is legacy; Perfetto is the default tracer."
 
 
 # =============================================================================
@@ -98,15 +98,6 @@ class SystracePanel(BasePanel):
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(Spacing.MD, Spacing.MD, Spacing.MD, Spacing.MD)
         layout.setSpacing(Spacing.MD)
-
-        # =====================================================================
-        # DEPRECATION BANNER
-        # =====================================================================
-        self._deprecation = DeprecationBanner(
-            "Systrace is deprecated. Google recommends Perfetto for devices running Android 10+.",
-            link_text="Switch to Perfetto",
-        )
-        layout.addWidget(self._deprecation)
 
         # =====================================================================
         # CAPTURE CONFIGURATION GROUP
@@ -373,7 +364,7 @@ class SystracePanel(BasePanel):
             self._auto_loaded_serial = None
             self.status_message.emit("Please select a device.")
         else:
-            self.status_message.emit(f"Selected device: {serial}.")
+            self.status_message.emit(f"Selected device: {serial}. {LEGACY_STATUS_MESSAGE}")
             should_auto_load = (
                 serial != self._auto_loaded_serial
                 or not self._selected_categories
